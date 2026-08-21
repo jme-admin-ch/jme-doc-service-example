@@ -1,0 +1,6 @@
+spring:
+  docker:
+    compose:
+      file:
+        - ../docker/docker-compose.yml
+        - ../docker/docker-compose-ci.yml

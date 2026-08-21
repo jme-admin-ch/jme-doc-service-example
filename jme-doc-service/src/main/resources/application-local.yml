@@ -1,0 +1,25 @@
+# Configuration for a doc service running on the developer machine, against the containers of
+# docker/docker-compose.yml.
+server:
+  port: 8080
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/jme-doc-service-db
+    username: postgres
+    password: secret
+
+jeap:
+  security:
+    oauth2:
+      resourceserver:
+        authorization-server:
+          issuer: http://localhost:8081/jme-doc-auth-scs
+          jwk-set-uri: http://localhost:8081/jme-doc-auth-scs/.well-known/jwks.json
+  s3:
+    client:
+      region: us-east-1
+      endpoint-url: http://localhost:9000
+      access-key: rustfsadmin
+      secret-key: rustfsadmin
+      tls: false

@@ -1,0 +1,14 @@
+spring:
+  application:
+    name: jme-doc-auth-scs
+  main:
+    banner-mode: off
+
+server:
+  servlet:
+    context-path: /${spring.application.name}
+
+jeap:
+  web:
+    tls:
+      enabled: false

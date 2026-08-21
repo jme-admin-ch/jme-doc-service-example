@@ -1,0 +1,34 @@
+server:
+  port: 8081
+
+mockserver:
+  base-url: "http://localhost:${server.port}/jme-doc-auth-scs"
+
+# The doc pipelines of the systems authenticate themselves in the system context (SYS) and receive a token with
+# the semantic roles configured here. The system a role is granted for is carried in its tenant part, so
+# 'jmedoc_%jme_@docs_#write' allows changing the documentation of the system 'jme' and of no other system.
+# See the jeap-oauth-mock-server project for the meaning of the configuration parameters.
+oauth-mock-data:
+  clients:
+
+    # The doc pipeline of the system 'jme': it may publish the documentation of its own system.
+    - client-id: "jme-doc-pipeline"
+      client-secret: "{noop}secret"
+      context: "SYS"
+      userroles: [ "jmedoc_%jme_@docs_#write" ]
+      audience: [ "jme-doc-service" ]
+
+    # The doc pipeline of another system, used by the integration test to show that it cannot publish into the
+    # documentation of the system 'jme'.
+    - client-id: "other-system-doc-pipeline"
+      client-secret: "{noop}secret"
+      context: "SYS"
+      userroles: [ "jmedoc_%othersystem_@docs_#write" ]
+      audience: [ "jme-doc-service" ]
+
+    # A client that may read the doc service API, without the right to change any documentation.
+    - client-id: "jme-doc-reader"
+      client-secret: "{noop}secret"
+      context: "SYS"
+      userroles: [ "jmedoc_@docs_#read" ]
+      audience: [ "jme-doc-service" ]

@@ -1,0 +1,71 @@
+# The infrastructure the doc service needs: a PostgreSQL database for the metadata of the documentation and an
+# S3-compatible object storage for the documents themselves. The integration test starts this file itself, see
+# jme-doc-test/src/test/resources/application.yml.
+
+services:
+
+  ############################################
+  # Database
+  ############################################
+  jme-doc-db:
+    image: postgres:18.4-alpine
+    hostname: jme-doc-db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: jme-doc-service-db
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d jme-doc-service-db" ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  ############################################
+  # Object storage
+  ############################################
+  jme-doc-objectstorage:
+    image: rustfs/rustfs:1.0.0-beta.10
+    hostname: jme-doc-objectstorage
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9001
+      RUSTFS_ACCESS_KEY: rustfsadmin
+      RUSTFS_SECRET_KEY: rustfsadmin
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_REGION: us-east-1
+      http_proxy: ''
+      https_proxy: ''
+      HTTP_PROXY: ''
+      HTTPS_PROXY: ''
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -fsS http://127.0.0.1:9000/health" ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  # The doc service does not start when its bucket is missing, so the bucket is created with the storage.
+  jme-doc-objectstorage-init:
+    image: amazon/aws-cli:2.36.2
+    depends_on:
+      jme-doc-objectstorage:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      aws --endpoint-url http://jme-doc-objectstorage:9000 s3api create-bucket --bucket jme-doc-service-documents || true;
+      "
+    environment:
+      AWS_ACCESS_KEY_ID: rustfsadmin
+      AWS_SECRET_ACCESS_KEY: rustfsadmin
+      AWS_DEFAULT_REGION: us-east-1
+      HTTP_PROXY: ''
+      HTTPS_PROXY: ''
+      http_proxy: ''
+      https_proxy: ''
+      NO_PROXY: 'jme-doc-objectstorage,localhost,127.0.0.1'
+      no_proxy: 'jme-doc-objectstorage,localhost,127.0.0.1'

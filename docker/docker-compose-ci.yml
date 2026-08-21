@@ -1,0 +1,18 @@
+# CI overlay for docker-compose.yml. On CI the maven build itself runs in a container attached to the same
+# docker network as the containers started here, so host ports are neither needed nor published - publishing
+# them would clash with other builds running in parallel. The services are reached under their compose service
+# names instead of localhost, see the application-ci.yml files.
+
+services:
+
+  jme-doc-db:
+    ports: !reset [ ]
+
+  jme-doc-objectstorage:
+    ports: !reset [ ]
+
+networks:
+  default:
+    external: true
+    # Network is created by the CI job and includes the test runner and the containers of this compose file
+    name: ${COMPOSE_PROJECT_NAME}_default

@@ -1,0 +1,49 @@
+publiccodeYmlVersion: 0.7.0
+name: jme-doc-service-example
+applicationSuite: JME
+softwareVersion: 1.0.0
+releaseDate: 2026-08-21
+url: "https://github.com/jme-admin-ch/jme-doc-service-example.git"
+landingURL: "https://github.com/jme-admin-ch/jme"
+platforms:
+  - web
+categories:
+  - application-development
+developmentStatus: development
+softwareType: standalone/backend
+organisation:
+  uri: https://ld.admin.ch/office/V.1.7
+  name: Federal Office of Information Technology, Systems and Telecommunication
+description:
+  en:
+    localisedName: jme-doc-service-example
+    shortDescription: Example project showing how to run an instance of the jEAP Doc Service.
+    longDescription: >
+      This repository shows how to create and run an instance of the jEAP Doc Service, the service that receives
+      the documentation of systems, components and libraries from their build pipelines, stores it and serves it
+      as a documentation site. An instance consists of configuration only, and this example shows that
+      configuration together with everything needed to run and test it:
+
+      * jme-doc-service: the doc service instance and its configuration for a local machine and for the build.
+
+      * jme-doc-auth-scs: an instance of the jEAP OAuth mock server, issuing the tokens a doc pipeline holds.
+
+      * jme-doc-test: an integration test that starts both services and uploads a documentation set end to end.
+
+      * docker: the database and the object storage the doc service needs, including the creation of its bucket.
+    features:
+      - Shows the configuration of a jEAP Doc Service instance
+      - Shows the semantic roles that let a system publish its own documentation only
+      - Shows how to upload a documentation set from a build pipeline
+      - Includes a docker compose setup and an integration test covering the upload end to end
+legal:
+  license: Apache-2.0
+maintenance:
+  type: internal
+  contacts:
+    - name: Federal Office of Information Technology, Systems and Telecommunication FOITT
+      email: jeap-community@bit.admin.ch
+localisation:
+  localisationReady: false
+  availableLanguages:
+    - en

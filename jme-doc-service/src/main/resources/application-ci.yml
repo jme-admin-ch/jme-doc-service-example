@@ -1,0 +1,10 @@
+# In CI the build runs in a container on the same docker network as the containers of the example, so the
+# database and the object storage are reached under their compose service names instead of localhost.
+spring:
+  datasource:
+    url: jdbc:postgresql://jme-doc-db:5432/jme-doc-service-db
+
+jeap:
+  s3:
+    client:
+      endpoint-url: http://jme-doc-objectstorage:9000

@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: jme-doc-service
+  main:
+    banner-mode: off
+
+server:
+  servlet:
+    context-path: /${spring.application.name}
+
+jeap:
+  security:
+    oauth2:
+      resourceserver:
+        # Activates the semantic role model: a role of this instance reads 'jmedoc_%<system>_@docs_#write'.
+        system-name: jmedoc
+  swagger:
+    # The API documentation of the example is open, so it can be tried out at /jme-doc-service/swagger-ui.html.
+    status: OPEN
+  doc:
+    storage:
+      bucket: jme-doc-service-documents
+    upload:
+      max-size: 20MB

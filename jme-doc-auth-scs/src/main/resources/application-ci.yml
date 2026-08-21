@@ -1,0 +1,2 @@
+# The mock server is reached under its own base URL in CI as well - the integration test passes the URL it
+# started the service on, see DocServiceExampleIT.
