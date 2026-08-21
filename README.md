@@ -137,6 +137,11 @@ Everything this example configures is in three files:
 See the [configuration documentation of the doc service](https://github.com/jeap-admin-ch/jeap-doc-service/blob/main/docs/configuration.md)
 for the properties an instance can set.
 
+## Version of the doc service
+
+The version of the doc service the example runs is the property `jeap-doc-service.version` in the root
+[`pom.xml`](./pom.xml).
+
 ## Changes
 
 This example is versioned using [Semantic Versioning](http://semver.org/) and all changes are documented in

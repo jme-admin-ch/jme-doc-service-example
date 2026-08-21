@@ -39,8 +39,7 @@
     <properties>
         <java.version>25</java.version>
         <maven.compiler.release>25</maven.compiler.release>
-        <!-- The doc service is not released yet: the example follows the branch it is built on. -->
-        <jeap-doc-service.version>0.1.0-feature-JEAP-7385-skeleton-SNAPSHOT</jeap-doc-service.version>
+        <jeap-doc-service.version>0.1.0</jeap-doc-service.version>
         <jeap-oauth-mock-server.version>9.1.0</jeap-oauth-mock-server.version>
         <jme-spring-boot-integration-test.version>5.15.0</jme-spring-boot-integration-test.version>
     </properties>
