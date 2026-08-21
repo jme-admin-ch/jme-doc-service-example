@@ -12,8 +12,8 @@ jeap:
   security:
     oauth2:
       resourceserver:
-        # Activates the semantic role model: a role of this instance reads 'jmedoc_%<system>_@docs_#write'.
-        system-name: jmedoc
+        # Activates the semantic role model: a role of this instance reads 'jme_%<system>_@uploads_#write'.
+        system-name: jme
   swagger:
     # The API documentation of the example is open, so it can be tried out at /jme-doc-service/swagger-ui.html.
     status: OPEN

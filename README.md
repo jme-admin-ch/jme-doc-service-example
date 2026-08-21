@@ -19,19 +19,19 @@ with the database and the object storage, and an integration test that uploads a
 | `jme-doc-test`     | The integration test: it starts both services and uploads a documentation set                                                                  |
 | `docker/`          | The database and the object storage the doc service needs                                                                                      |
 
-## Roles: a system may only change its own documentation
+## Roles: a system may only upload its own documentation
 
 The doc service authorizes an upload with a semantic role that carries the system it is granted for in its
-**tenant** part. The mock server therefore issues tokens with `jmedoc_%jme_@docs_#write` for the doc pipeline of
-the system `jme`, and the doc service accepts uploads of that pipeline for the system `jme` only. The clients are
-configured in
+**tenant** part. The mock server therefore issues tokens with `jme_%jme_@uploads_#write` for the doc pipeline of
+the system `jme`, and the doc service accepts uploads of that pipeline for the system `jme` only. Reading the
+documentation is a separate resource, `docs`. The clients are configured in
 [`jme-doc-auth-scs/src/main/resources/application-local.yml`](jme-doc-auth-scs/src/main/resources/application-local.yml):
 
-| Client                      | Secret   | Role                               | May                                           |
-| --------------------------- | -------- | ---------------------------------- | --------------------------------------------- |
-| `jme-doc-pipeline`          | `secret` | `jmedoc_%jme_@docs_#write`         | publish the documentation of the system `jme` |
-| `other-system-doc-pipeline` | `secret` | `jmedoc_%othersystem_@docs_#write` | publish the documentation of another system   |
-| `jme-doc-reader`            | `secret` | `jmedoc_@docs_#read`               | read the doc service API                      |
+| Client                      | Secret   | Role                               | May                                          |
+| --------------------------- | -------- | ---------------------------------- | -------------------------------------------- |
+| `jme-doc-pipeline`          | `secret` | `jme_%jme_@uploads_#write`         | upload the documentation of the system `jme` |
+| `other-system-doc-pipeline` | `secret` | `jme_%othersystem_@uploads_#write` | upload the documentation of another system   |
+| `jme-doc-reader`            | `secret` | `jme_@docs_#read`                  | read the doc service API                     |
 
 ## Prerequisites
 
@@ -94,7 +94,7 @@ curl -i -X PUT "http://localhost:8080/jme-doc-service/api/uploads/$(uuidgen)\
   --data-binary @docs.zip
 ```
 
-The same upload with a token of `other-system-doc-pipeline` answers `403`: that pipeline may publish the
+The same upload with a token of `other-system-doc-pipeline` answers `403`: that pipeline may upload the
 documentation of its own system only. An upload that does not describe a documentation set - here without the
 version of the component - answers `400` with a problem document naming the reason:
 
@@ -127,8 +127,8 @@ upload that does not describe a documentation set (`400`).
 Everything this example configures is in three files:
 
 - [`jme-doc-service/src/main/resources/application.yml`](jme-doc-service/src/main/resources/application.yml) -
-  the name of the system the semantic roles are issued for, the bucket of the documentation and the size limit
-  of an upload
+  the name of the system the semantic roles are issued for (`jme`), the bucket of the documentation and the size
+  limit of an upload
 - [`application-local.yml`](jme-doc-service/src/main/resources/application-local.yml) - database, object storage
   and OAuth issuer of the developer machine
 - [`application-ci.yml`](jme-doc-service/src/main/resources/application-ci.yml) - the same, with the containers

@@ -33,7 +33,7 @@ description:
       * docker: the database and the object storage the doc service needs, including the creation of its bucket.
     features:
       - Shows the configuration of a jEAP Doc Service instance
-      - Shows the semantic roles that let a system publish its own documentation only
+      - Shows the semantic roles that let a system upload its own documentation only
       - Shows how to upload a documentation set from a build pipeline
       - Includes a docker compose setup and an integration test covering the upload end to end
 legal:
