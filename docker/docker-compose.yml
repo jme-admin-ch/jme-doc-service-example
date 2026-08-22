@@ -51,7 +51,7 @@ services:
 
   # The doc service does not start when its bucket is missing, so the bucket is created with the storage.
   jme-doc-objectstorage-init:
-    image: amazon/aws-cli:2.36.28
+    image: amazon/aws-cli:2.36.29
     depends_on:
       jme-doc-objectstorage:
         condition: service_healthy
