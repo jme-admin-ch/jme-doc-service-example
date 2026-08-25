@@ -37,10 +37,33 @@
             <artifactId>spring-boot-docker-compose</artifactId>
             <scope>test</scope>
         </dependency>
-        <!-- Looks into the object storage, to see where an uploaded bundle ended up. -->
+        <!-- Looks into the object storage, to see where an uploaded bundle ended up. As in the jEAP object
+             storage starter, the HTTP clients the SDK ships with are excluded and the URL connection client -
+             the JDK default, without dependencies - is used instead: neither Netty nor Apache HttpClient is
+             worth pulling in for a handful of requests. Note that the SDK renamed its Apache client to
+             apache5-client, so both names are excluded. -->
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>s3</artifactId>
+            <scope>test</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>netty-nio-client</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>apache-client</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>apache5-client</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>url-connection-client</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
