@@ -37,5 +37,11 @@
             <artifactId>spring-boot-docker-compose</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Looks into the object storage, to see where an uploaded bundle ended up. -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 </project>

@@ -4,6 +4,15 @@ import ch.admin.bit.jeap.jme.test.BootServiceSpringIntegrationTestBase;
 import io.restassured.response.Response;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Value;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.GetObjectTaggingRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.Tag;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -25,6 +34,7 @@ import java.util.zip.ZipOutputStream;
 
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.notNullValue;
@@ -45,6 +55,25 @@ class DocServiceExampleIT extends BootServiceSpringIntegrationTestBase {
     private static final String DOC_BASE_URL = "http://localhost:" + DOC_PORT + "/jme-doc-service";
 
     private static final String SYSTEM = "jme";
+
+    /**
+     * The tag every uploaded bundle carries. The lifecycle rule of the bucket selects on it rather than on the
+     * prefix, because jeap.doc.storage.upload-prefix is configured per instance while the tag is the same
+     * everywhere - see docker/docker-compose.yml.
+     */
+    private static final String UPLOAD_TAG_KEY = "jeap-doc-content";
+    private static final String UPLOAD_TAG_VALUE = "upload";
+
+    @Value("${jme-doc-test.objectstorage.endpoint-url}")
+    private URI objectStorageEndpoint;
+    @Value("${jme-doc-test.objectstorage.region}")
+    private String objectStorageRegion;
+    @Value("${jme-doc-test.objectstorage.access-key}")
+    private String objectStorageAccessKey;
+    @Value("${jme-doc-test.objectstorage.secret-key}")
+    private String objectStorageSecretKey;
+    @Value("${jme-doc-test.objectstorage.bucket}")
+    private String documentationBucket;
 
     @BeforeAll
     static void startServices() throws Exception {
@@ -250,6 +279,57 @@ class DocServiceExampleIT extends BootServiceSpringIntegrationTestBase {
                 .get(uploadPath(UUID.randomUUID()))
                 .then()
                 .statusCode(403);
+    }
+
+    /**
+     * Where the bundle of an upload ends up: under the identifier the doc service gave the upload and the number
+     * of the attempt that stored it, and tagged, so that the lifecycle rule of the bucket expires it. A build log
+     * naming the id is therefore enough to find the bundle again.
+     */
+    @Test
+    void theBundleLiesInTheObjectStorageUnderTheIdOfTheUpload() {
+        UUID uploadId = UUID.randomUUID();
+        String accessToken = uploadToken();
+
+        Response stored = upload(uploadId, accessToken, documentationSetParameters());
+        stored.then().statusCode(201);
+        int id = stored.path("id");
+        int sizeInBytes = stored.path("sizeInBytes");
+
+        int attempt = given().baseUri(DOC_BASE_URL)
+                .auth().oauth2(accessToken)
+                .queryParam("system", SYSTEM)
+                .when()
+                .get(uploadPath(uploadId))
+                .then()
+                .statusCode(200)
+                .extract()
+                .path("attempt");
+
+        String key = "uploads/docs/%d/%d/bundle.zip".formatted(id, attempt);
+        try (S3Client objectStorage = objectStorage()) {
+            HeadObjectResponse bundle = objectStorage.headObject(HeadObjectRequest.builder()
+                    .bucket(documentationBucket).key(key).build());
+            assertThat(bundle.contentLength()).isEqualTo(sizeInBytes);
+
+            List<Tag> tags = objectStorage.getObjectTagging(GetObjectTaggingRequest.builder()
+                    .bucket(documentationBucket).key(key).build()).tagSet();
+            assertThat(tags).extracting(Tag::key, Tag::value).containsExactly(tuple(UPLOAD_TAG_KEY, UPLOAD_TAG_VALUE));
+        }
+    }
+
+    /**
+     * A client for the object storage of the example. Path style addressing, because the bucket of a local
+     * S3-compatible storage is a path and not a subdomain.
+     */
+    private S3Client objectStorage() {
+        return S3Client.builder()
+                .endpointOverride(objectStorageEndpoint)
+                .region(Region.of(objectStorageRegion))
+                .credentialsProvider(StaticCredentialsProvider.create(
+                        AwsBasicCredentials.create(objectStorageAccessKey, objectStorageSecretKey)))
+                .forcePathStyle(true)
+                .build();
     }
 
     private String uploadToken() {

@@ -4,3 +4,9 @@ spring:
       file:
         - ../docker/docker-compose.yml
         - ../docker/docker-compose-ci.yml
+
+# In CI the test runs in a container on the same docker network as the containers of the example, so the object
+# storage is reached under its compose service name instead of localhost - as in jme-doc-service/application-ci.yml.
+jme-doc-test:
+  objectstorage:
+    endpoint-url: http://jme-doc-objectstorage:9000

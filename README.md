@@ -16,7 +16,7 @@ with the database and the object storage, and an integration test that uploads a
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | `jme-doc-service`  | The doc service instance: it depends on `jeap-doc-service-instance` and adds its configuration                                                 |
 | `jme-doc-auth-scs` | An instance of the [jEAP OAuth mock server](https://github.com/jeap-admin-ch/jeap-oauth-mock-server), issuing the tokens the doc pipelines use |
-| `jme-doc-test`     | The integration test: it starts both services and uploads a documentation set                                                                  |
+| `jme-doc-test`     | The integration test: it starts both services, uploads a documentation set and looks into the bucket it landed in                              |
 | `docker/`          | The database and the object storage the doc service needs, with its bucket and the lifecycle rule expiring the uploaded bundles                |
 
 ## Roles: a system may only upload its own documentation
@@ -170,8 +170,9 @@ server and the doc service on free ports, and uploads a documentation set with a
 covers the stored upload (`201`, `PENDING`), the repetition under the same upload id (`200`, the same `id`) and a
 different documentation set under a used one (`409`), the upload for another system and the one with the read
 role only (`403`), the upload without a token (`401`), an upload that does not describe a documentation set and
-one with a mistyped parameter (`400`), an upload that announces no size (`411`), and reading the state of an
-upload back.
+one with a mistyped parameter (`400`), an upload that announces no size (`411`), reading the state of an upload
+back, and the bundle lying in the object storage under the id of the upload - tagged, so the lifecycle rule of
+the bucket expires it.
 
 ## Configuration of the instance
 

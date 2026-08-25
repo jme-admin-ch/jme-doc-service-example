@@ -15,3 +15,13 @@ spring:
         - "--project-name=${COMPOSE_PROJECT_NAME:jme-doc-service-example-it}"
       readiness:
         timeout: 120s
+
+# The object storage of the example, as the test reaches it - it looks into the bucket to see where an uploaded
+# bundle ended up. The credentials are the ones docker/docker-compose.yml starts RustFS with.
+jme-doc-test:
+  objectstorage:
+    endpoint-url: http://localhost:9000
+    region: us-east-1
+    access-key: rustfsadmin
+    secret-key: rustfsadmin
+    bucket: jme-doc-service-documents
