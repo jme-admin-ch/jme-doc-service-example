@@ -20,5 +20,20 @@ jeap:
   doc:
     storage:
       bucket: jme-doc-service-documents
+      # The bundles are spooled to a file while they are transferred to the object storage, which is what keeps
+      # them out of the memory of the service. Without a directory the temporary directory of the JVM is used,
+      # which is a disk on a developer machine - a container whose /tmp is a memory-backed tmpfs has to point
+      # this at a volume instead.
+      # spool-directory: /var/jme-doc-service/spool
     upload:
+      # The documentation sets of this example are small, so it accepts less than the 50MB the doc service
+      # allows by default.
       max-size: 20MB
+      # An upload is removed from the database after the retention, its bundle by a lifecycle rule of the
+      # bucket - and the rule has to be set longer than the retention, so an upload never points at a bundle
+      # that is already gone. These are the defaults of the doc service, spelled out because the two halves
+      # belong together: the rule of this example is created with the bucket, see docker/docker-compose.yml.
+      housekeeping:
+        enabled: true
+        retention: P14D
+        cron: "0 30 2 * * *"

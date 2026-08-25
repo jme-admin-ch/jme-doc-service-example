@@ -49,16 +49,27 @@ services:
       retries: 20
       start_period: 10s
 
-  # The doc service does not start when its bucket is missing, so the bucket is created with the storage.
+  # The doc service does not start when its bucket is missing, so the bucket is created with the storage - and
+  # so is the lifecycle rule that expires the uploaded bundles, because it belongs to the bucket rather than to
+  # the service: the doc service removes an upload from its database after
+  # jeap.doc.upload.housekeeping.retention, and the bundle it points at is expired here, a day later, so an
+  # upload never outlives its bundle. The rule selects on the tag every uploaded bundle carries, not on the
+  # prefix, because jeap.doc.storage.upload-prefix is configured per instance while the tag is the same
+  # everywhere.
   jme-doc-objectstorage-init:
     image: amazon/aws-cli:2.36.29
     depends_on:
       jme-doc-objectstorage:
         condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      aws --endpoint-url http://jme-doc-objectstorage:9000 s3api create-bucket --bucket jme-doc-service-documents || true;
-      "
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        aws --endpoint-url http://jme-doc-objectstorage:9000 s3api create-bucket --bucket jme-doc-service-documents || true
+        aws --endpoint-url http://jme-doc-objectstorage:9000 s3api put-bucket-lifecycle-configuration \
+          --bucket jme-doc-service-documents \
+          --lifecycle-configuration '{"Rules":[{"ID":"expire-jeap-doc-uploads","Status":"Enabled","Filter":{"Tag":{"Key":"jeap-doc-content","Value":"upload"}},"Expiration":{"Days":15},"NoncurrentVersionExpiration":{"NoncurrentDays":1}}]}'
     environment:
       AWS_ACCESS_KEY_ID: rustfsadmin
       AWS_SECRET_ACCESS_KEY: rustfsadmin
