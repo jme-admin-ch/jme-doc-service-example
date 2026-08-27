@@ -57,7 +57,7 @@ services:
   # prefix, because jeap.doc.storage.upload-prefix is configured per instance while the tag is the same
   # everywhere.
   jme-doc-objectstorage-init:
-    image: amazon/aws-cli:2.36.31
+    image: amazon/aws-cli:2.36.32
     depends_on:
       jme-doc-objectstorage:
         condition: service_healthy
