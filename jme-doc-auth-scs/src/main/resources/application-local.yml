@@ -32,3 +32,12 @@ oauth-mock-data:
       context: "SYS"
       userroles: [ "jme_@docs_#read" ]
       audience: [ "jme-doc-service" ]
+
+    # Whoever operates the instance: they may ask for a site to be published and read what the documentation
+    # generator has been doing. These two roles carry no tenant part, unlike the upload roles above: a build
+    # regenerates the documentation of every system on the site, not that of one system.
+    - client-id: "jme-doc-operator"
+      client-secret: "{noop}secret"
+      context: "SYS"
+      userroles: [ "jme_@sites_#admin", "jme_@sites_#read" ]
+      audience: [ "jme-doc-service" ]

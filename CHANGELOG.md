@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] - 2026-08-28
+
+### Added
+
+- The example generates and serves the documentation site. This needs **Node 24** on the machine: the Maven build
+  installs the site template's dependencies with `npm ci`, and the doc service does not start without them - see
+  [Running the example on a developer machine](docs/local-development.md).
+- A `jme-doc-operator` client holding `jme_@sites_#admin` and `jme_@sites_#read`, which may ask for a site to be
+  published and read what the generator has been doing.
+- The site the instance publishes, `jeap.doc.sites.default.title`, and the origin it is published under,
+  `jeap.doc.publication.url`.
+- A lifecycle rule expiring the generated sites, on the tag `jeap-doc-content=site`, next to the one for the
+  uploaded bundles.
+
+### Dependencies
+- **ch.admin.bit.jeap:jeap-doc-service-instance**: 0.4.0 → 0.5.0 (minor)
+
 ## [2.5.0] - 2026-08-27
 
 ### Dependencies

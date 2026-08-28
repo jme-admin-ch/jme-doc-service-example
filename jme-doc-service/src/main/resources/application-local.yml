@@ -10,6 +10,12 @@ spring:
     password: secret
 
 jeap:
+  doc:
+    publication:
+      # The origin the documentation is published under - the sitemap and the page metadata name it. The origin
+      # only: the path below it is the context path of this service plus the site, and a URL carrying a path is
+      # refused while the service starts.
+      url: http://localhost:8080
   security:
     oauth2:
       resourceserver:

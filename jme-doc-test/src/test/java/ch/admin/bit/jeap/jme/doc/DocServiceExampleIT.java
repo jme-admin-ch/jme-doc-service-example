@@ -15,22 +15,16 @@ import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.Tag;
 
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -54,7 +48,7 @@ class DocServiceExampleIT extends BootServiceSpringIntegrationTestBase {
     private static final String AUTH_BASE_URL = "http://localhost:" + AUTH_PORT + "/jme-doc-auth-scs";
     private static final String DOC_BASE_URL = "http://localhost:" + DOC_PORT + "/jme-doc-service";
 
-    private static final String SYSTEM = "jme";
+    private static final String SYSTEM = DocumentationSets.SYSTEM;
 
     /**
      * The tag every uploaded bundle carries. The lifecycle rule of the bucket selects on it rather than on the
@@ -350,35 +344,11 @@ class DocServiceExampleIT extends BootServiceSpringIntegrationTestBase {
         return "/api/uploads/docs/" + uploadId;
     }
 
-    /**
-     * The documentation set a doc pipeline of the system 'jme' uploads for one of its components - the
-     * parameters are named like the keys of the doc workflow configuration of the repository. A retry has to
-     * send them unchanged, so the map is the one place they are written down.
-     */
     private static Map<String, String> documentationSetParameters() {
-        Map<String, String> parameters = new LinkedHashMap<>();
-        parameters.put("type", "component-docs");
-        parameters.put("system", SYSTEM);
-        parameters.put("component", "jme-doc-service");
-        parameters.put("template", "arc42");
-        parameters.put("source-format", "markdown");
-        parameters.put("version", "1.0.0");
-        parameters.put("source-repository", "ssh://git@bitbucket.example.ch/bit_jme/jme-doc-service-example.git");
-        parameters.put("source-revision", "9a1c2f8");
-        parameters.put("source-ref", "main");
-        parameters.put("source-timestamp", "2026-08-21T09:12:00+02:00");
-        return parameters;
+        return DocumentationSets.parameters();
     }
 
     private static byte[] documentationSet() {
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-        try (ZipOutputStream zip = new ZipOutputStream(bytes)) {
-            zip.putNextEntry(new ZipEntry("1-intro/why-we-built-this.md"));
-            zip.write("# Why we built this".getBytes(StandardCharsets.UTF_8));
-            zip.closeEntry();
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
-        return bytes.toByteArray();
+        return DocumentationSets.bundle();
     }
 }

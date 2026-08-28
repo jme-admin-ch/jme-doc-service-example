@@ -9,9 +9,12 @@ Apache License Version 2.0
 -------------------------------
 
  * ch.admin.bit.jeap:jeap-doc-domain - [ch.admin.bit.jeap:jeap-doc-domain](https://github.com/jeap-admin-ch/jeap-doc-service/tree/main/jeap-doc-domain)
+ * ch.admin.bit.jeap:jeap-doc-metrics - [ch.admin.bit.jeap:jeap-doc-metrics](https://github.com/jeap-admin-ch/jeap-doc-service/tree/main/jeap-doc-metrics)
  * ch.admin.bit.jeap:jeap-doc-objectstorage - [ch.admin.bit.jeap:jeap-doc-objectstorage](https://github.com/jeap-admin-ch/jeap-doc-service/tree/main/jeap-doc-objectstorage)
  * ch.admin.bit.jeap:jeap-doc-persistence - [ch.admin.bit.jeap:jeap-doc-persistence](https://github.com/jeap-admin-ch/jeap-doc-service/tree/main/jeap-doc-persistence)
  * ch.admin.bit.jeap:jeap-doc-service-instance - [ch.admin.bit.jeap:jeap-doc-service-instance](https://github.com/jeap-admin-ch/jeap-doc-service/tree/main/jeap-doc-service-instance)
+ * ch.admin.bit.jeap:jeap-doc-site - [ch.admin.bit.jeap:jeap-doc-site](https://github.com/jeap-admin-ch/jeap-doc-service/tree/main/jeap-doc-site)
+ * ch.admin.bit.jeap:jeap-doc-sitegenerator - [ch.admin.bit.jeap:jeap-doc-sitegenerator](https://github.com/jeap-admin-ch/jeap-doc-service/tree/main/jeap-doc-sitegenerator)
  * ch.admin.bit.jeap:jeap-doc-web - [ch.admin.bit.jeap:jeap-doc-web](https://github.com/jeap-admin-ch/jeap-doc-service/tree/main/jeap-doc-web)
  * ch.admin.bit.jeap:jeap-oauth-mock-server - [ch.admin.bit.jeap:jeap-oauth-mock-server](https://github.com/jeap-admin-ch/jeap-oauth-mock-server/tree/main/jeap-oauth-mock-server)
  * ch.admin.bit.jeap:jeap-spring-boot-application-starter - [ch.admin.bit.jeap:jeap-spring-boot-application-starter](https://github.com/jeap-admin-ch/jeap-spring-boot-starters/tree/main/jeap-spring-boot-application-starter)

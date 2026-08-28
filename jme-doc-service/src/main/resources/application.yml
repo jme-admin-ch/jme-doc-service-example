@@ -37,3 +37,23 @@ jeap:
         enabled: true
         retention: P14D
         cron: "0 30 2 * * *"
+    build:
+      # Where the site template's dependencies were installed - by the Maven build of this module into
+      # target/site-install, so the path is relative to the directory the service is started in. An instance
+      # that ships a container puts them into its image instead and points this at an absolute path; see the
+      # doc service's docs/site-image.md. Without them the service does not start: it would otherwise fail
+      # fifteen minutes into the first build, deep inside the bundler.
+      node-modules-directory: target/site-install/node_modules
+      # The Node runtime, and the default. The site generator runs as a child process whose environment is
+      # built from nothing, so a bare command name is looked up on /usr/bin:/bin and not on the PATH of
+      # whoever started the service: a developer machine whose Node comes from nvm, fnm, asdf or Homebrew has
+      # to name the binary, and an image names the absolute path of the one it copied in. See
+      # docs/local-development.md.
+      node-command: node
+    sites:
+      # The documentation sites of this instance. One site is one published whole - one navigation, one layout,
+      # one search index - and this example publishes a single one, the default site, served at the context
+      # root. Everything else about it is left at the defaults of the doc service: the four environments
+      # dev/ref/abn/prod with prod at the root, and a regeneration hourly through the working day.
+      default:
+        title: JME Documentation

@@ -6,7 +6,7 @@
     <parent>
         <groupId>ch.admin.bit.jeap</groupId>
         <artifactId>jme-doc-service-example</artifactId>
-        <version>2.5.0-SNAPSHOT</version>
+        <version>2.6.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>jme-doc-service</artifactId>
@@ -24,6 +24,12 @@
         </dependency>
     </dependencies>
 
+    <properties>
+        <!-- Skips the npm install below for a repeat build that already has the dependencies. The service does
+             not start without them, so this is a shortcut and not a switch to leave on. -->
+        <skipSiteInstall>false</skipSiteInstall>
+    </properties>
+
     <build>
         <plugins>
             <plugin>
@@ -32,6 +38,69 @@
                 <configuration>
                     <mainClass>ch.admin.bit.jeap.doc.web.DocServiceApplication</mainClass>
                 </configuration>
+            </plugin>
+
+            <!-- The doc service generates the documentation site by running the site generator as a child
+                 process, so the instance has to supply the site template's installed dependencies: the template
+                 sources travel in the jeap-doc-site jar, node_modules cannot. An image build installs them into
+                 the image (see the doc service's docs/site-image.md); this example runs on the developer
+                 machine, so it installs them into target/site-install and points
+                 jeap.doc.build.node-modules-directory there.
+
+                 npm ci reads exactly two files, and both come out of the ordinary jeap-doc-site artifact - so
+                 the dependencies are by definition the ones this version of the doc service expects, which is
+                 what the service checks while it starts. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>unpack-site-manifest</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>unpack</goal>
+                        </goals>
+                        <configuration>
+                            <skip>${skipSiteInstall}</skip>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>ch.admin.bit.jeap</groupId>
+                                    <artifactId>jeap-doc-site</artifactId>
+                                    <version>${jeap-doc-service.version}</version>
+                                    <includes>site/package.json,site/package-lock.json</includes>
+                                    <outputDirectory>${project.build.directory}/site-install</outputDirectory>
+                                    <fileMappers>
+                                        <org.codehaus.plexus.components.io.filemappers.FlattenFileMapper/>
+                                    </fileMappers>
+                                </artifactItem>
+                            </artifactItems>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>install-site-dependencies</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <skip>${skipSiteInstall}</skip>
+                            <executable>npm</executable>
+                            <workingDirectory>${project.build.directory}/site-install</workingDirectory>
+                            <arguments>
+                                <argument>ci</argument>
+                                <argument>--omit=dev</argument>
+                                <argument>--no-audit</argument>
+                                <argument>--no-fund</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
