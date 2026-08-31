@@ -92,7 +92,7 @@ The property names the **binary**, not its directory - and the directory it live
 An upload asks for the site to be published, and the instance picks that request up within
 `jeap.doc.build.poll-interval` - 30 seconds. On top of that the site is regenerated on its own schedule, hourly
 through the working day. Neither is a feedback loop anybody wants while developing, so ask for a build directly
-with the operator client - see [Publish the site](../README.md#publish-the-site-and-read-what-the-generator-did)
+with the operator client - see [Publish the site](https://github.com/jme-admin-ch/jme-doc-service-example#publish-the-site-and-read-what-the-generator-did)
 in the README.
 
 A build works in `jeap.doc.build.workspace-directory`, which defaults to the temporary directory of the JVM, and
