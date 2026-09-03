@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2026-09-03
+
+### Dependencies
+- **ch.admin.bit.jeap:jeap-spring-boot-parent**: 40.7.0 → 40.9.0 (minor)
+- **ch.admin.bit.jeap:jeap-doc-service-instance**: 1.1.0 → 1.1.1 (patch)
+- **ch.admin.bit.jeap:jeap-doc-site**: 1.1.0 → 1.1.1 (patch)
+- **ch.admin.bit.jeap:jeap-oauth-mock-server**: 10.7.0 → 10.8.0 (minor)
+- **ch.admin.bit.jeap.jme:jme-spring-boot-integration-test**: 6.2.0 → 6.2.1 (patch)
+
 ## [3.0.0] - 2026-09-02
 
 ### Dependencies
