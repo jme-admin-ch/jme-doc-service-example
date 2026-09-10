@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.0] - 2026-09-10
+
+### Changed
+
+- The site is published as **one build per part** - the shell plus one per system - so it is asked for and read
+  per part; this example configures no architecture repository, so its site is the shell alone.
+- The bucket has **no lifecycle rule over the generated sites** any more: what a part serves keeps the date of
+  the build that last changed it, so an age rule would expire live documentation.
+
+### Added
+
+- The integration test drives `POST /api/uploads/docs/validation`, which says whether a path tree would be
+  accepted before the ZIP exists.
+- The site has a search again, in the navbar and at `/search`, scoped to the environment the reader is in.
+
+### Dependencies
+- **ch.admin.bit.jeap:jeap-spring-boot-parent**: 40.10.1 → 40.11.0 (minor)
+- **ch.admin.bit.jeap:jeap-doc-service-instance**: 1.3.0 → 2.0.0 (major)
+- **ch.admin.bit.jeap:jeap-doc-site**: 1.3.0 → 2.0.0 (major)
+- **ch.admin.bit.jeap:jeap-oauth-mock-server**: 10.9.0 → 10.10.0 (minor)
+
 ## [3.3.1] - 2026-09-08
 
 ### Dependencies

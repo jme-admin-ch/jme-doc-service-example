@@ -17,7 +17,7 @@ with the database and the object storage, and an integration test that uploads a
 | `jme-doc-service`  | The doc service instance: it depends on `jeap-doc-service-instance` and adds its configuration                                                 |
 | `jme-doc-auth-scs` | An instance of the [jEAP OAuth mock server](https://github.com/jeap-admin-ch/jeap-oauth-mock-server), issuing the tokens the doc pipelines use |
 | `jme-doc-test`     | The integration test: it starts both services, uploads a documentation set and looks into the bucket it landed in                              |
-| `docker/`          | The database and the object storage the doc service needs, with its bucket and the lifecycle rules expiring the uploaded bundles and the generated sites |
+| `docker/`          | The database and the object storage the doc service needs, with its bucket and the lifecycle rule expiring the uploaded bundles |
 | `docs/`            | [Running the example on a developer machine](docs/local-development.md) - the prerequisites in full, and what to do when the service does not start |
 
 ## Roles: a system may only upload its own documentation
@@ -168,12 +168,62 @@ intended.
 See the [API documentation of the doc service](https://github.com/jeap-admin-ch/jeap-doc-service/blob/main/docs/api.md)
 for all parameters.
 
+### Ask whether a tree would be accepted, before packing it
+
+Where each file sits in the folder is what decides where it is published, so a misfiled tree is a build that
+fails or a page that appears in the wrong chapter. A pipeline can ask before it builds the ZIP, with the same
+token and the parameters the *structure* depends on - no version, no commit, no site, because a path tree does
+not depend on any of them:
+
+```shell
+curl -i -X POST "http://localhost:8080/jme-doc-service/api/uploads/docs/validation\
+?type=component-docs&system=jme&component=jme-doc-service&template=arc42&source-format=markdown" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"paths": ["1-intro/why-we-built-this.md", "4-runtime-view/how-an-upload-travels.md"]}'
+```
+
+**The verdict is the status line**, so a pipeline branches three ways: `200` publish, `422` print the findings
+and stop, anything else fail loudly because the endpoint or the token is wrong. arc42 has no chapter
+`4-runtime-view`, so this one is `422`, and the body is the problem document the upload API answers with,
+carrying the report as extension members:
+
+```json
+{
+  "type": "https://jeap.admin.ch/problems/docs/structure-invalid",
+  "title": "The documentation structure is invalid",
+  "status": 422,
+  "detail": "1 problem in 2 paths.",
+  "template": "arc42",
+  "pathsChecked": 2,
+  "pathsIgnored": 0,
+  "findings": [
+    {
+      "code": "UNKNOWN_CHAPTER",
+      "path": "4-runtime-view/how-an-upload-travels.md",
+      "message": "'4-runtime-view' is not a chapter of arc42. Did you mean '6-runtime-view'?"
+    }
+  ],
+  "findingsOmitted": 0
+}
+```
+
+Nothing is uploaded, stored or read by this: the tree arrives as a list of paths and no file's bytes are sent -
+what is *in* the files is the doc workflow's own half of the validation. The rules it applies are in
+[what an upload is validated against](https://github.com/jeap-admin-ch/jeap-doc-service/blob/main/docs/upload-validation.md).
+
 ### Publish the site, and read what the generator did
 
-An upload asks for the site to be published, and an instance picks that request up within
-`jeap.doc.build.poll-interval` - 30 seconds by default. The site is then served at
-http://localhost:8080/jme-doc-service/. On top of that the site is regenerated on the site's own schedule,
-hourly through the working day.
+**A site is published as one build per part.** A part is a set of whole URL subtrees, and the partition cuts a
+site into one part per system plus the *shell* - the part carrying the site's own pages and everything no system
+claims. Which systems a site has is what an architecture repository tells it, and this example configures none,
+so its site is the shell and nothing else. That is a legitimate configuration and the smallest one there is; an
+instance with a landscape behind it has one part per system beside the shell, built several at a time and only
+where the content moved.
+
+An upload asks for a build of the part that carries its system, and an instance picks that request up within
+`jeap.doc.build.poll-interval` - 30 seconds by default. On top of that a site no architecture import feeds is
+asked for on `jeap.doc.build.reconcile-cron`, every four hours through the working day.
 
 Waiting for either is not what a developer wants, so ask for a build directly. That is what the operator client
 is for:
@@ -190,30 +240,43 @@ curl -i -X POST http://localhost:8080/jme-doc-service/api/sites/default/builds \
 ```json
 {
   "site": "default",
-  "requested": true,
-  "trigger": "MANUAL",
-  "pendingSince": "2026-08-28T09:12:03Z",
+  "partsRequested": 1,
   "picksUpWithinSeconds": 30
 }
 ```
 
-**Asking is not building.** The answer is `202`: the ask leaves the same request an upload leaves, and an
-instance claims it on its next poll - which is why the answer says how long that takes at most. Asking again
-while one is pending answers `requested: false` and joins it, because however often it is asked for, the site is
-built once.
+**Asking is not building.** The answer is `202`: the ask leaves the same request an upload leaves, one per part,
+and an instance claims them on its next poll - which is why the answer says how long that takes at most. It is
+the forcing kind of ask: every part is published whether its content moved or not, which is what is wanted after
+a change outside the content.
+
+One part on its own is asked for below it, which is what to use when one part is wrong and the rest of the site
+is expensive to rebuild:
+
+```shell
+curl -i -X POST http://localhost:8080/jme-doc-service/api/sites/default/parts/shell/builds \
+  -H "Authorization: Bearer $ADMIN"
+```
+
+Here too, asking again while a request is pending answers `requested: false` and joins it: however often a part
+is asked for, it is built once.
 
 What the generator has been doing is read with the same token:
 
 ```shell
-curl -s http://localhost:8080/jme-doc-service/api/sites/default -H "Authorization: Bearer $ADMIN"
+curl -s http://localhost:8080/jme-doc-service/api/sites/default        -H "Authorization: Bearer $ADMIN"
+curl -s http://localhost:8080/jme-doc-service/api/sites/default/parts  -H "Authorization: Bearer $ADMIN"
 curl -s http://localhost:8080/jme-doc-service/api/sites/default/builds -H "Authorization: Bearer $ADMIN"
 ```
 
-The first answers what the site is configured to do next to what has actually happened - the schedule, whether
-it is published on upload, what is pending, what is running, what is published and what was built last. It is
-the answer to *why is this site not updating* without reading a log. The second is the history: every run with
+The first answers what the site is configured to do next to what has actually happened - whether it is published
+on upload, what is pending, what is running, what the shell has published and what was built last. The second is
+the part list: what each part carries, what is published for it, **how old that is** and whether a build of it
+is owed - which is where *is this documentation up to date* is answered now that no single build is the site. A
+part nobody has rebuilt for a week either has not changed for a week or has stopped being built, and the two are
+told apart by whether any other part is younger. The third is the history: every run with the part it produced,
 its trigger, its state, how long it took, how much of that was the site generator, what it produced, and the
-reason it failed if it did.
+reason it failed if it did. `…/parts/shell/builds` is the same history for one part.
 
 A token of `jme-doc-pipeline` answers `403` on all of them: uploading the documentation of one system is not a
 licence to republish everybody's.
@@ -223,28 +286,43 @@ documentation is open, the API is not. Each environment of the site is a tree of
 the one at the root:
 
 | | |
-| --- | --- |
-| `/jme-doc-service/` | the `main` environment, `prod` - it is served here and has no path of its own |
-| `/jme-doc-service/dev/`, `/ref/`, `/abn/` | the other environments |
+| ----------------------------------------- | ----------------------------------------------------------------------------- |
+| `/jme-doc-service/`                       | the `main` environment, `prod` - it is served here and has no path of its own  |
+| `/jme-doc-service/dev/`, `/ref/`, `/abn/` | the other environments                                                          |
+| `/jme-doc-service/search/`                | the search, also reachable from the box in the navbar of every page            |
+
+The search is scoped to the environment the reader is in, so a query answers with the tree they are reading
+rather than with the same page once per environment. Its index is built at the end of the build pass that
+published the site - not on a schedule, and it can never fail a publication.
 
 Before the first build, all of them answer `503` with a page saying the documentation is on its way, and a
 `Retry-After` - a site that has not been generated yet is not a wrong URL.
 
 ### What the bucket keeps, and for how long
 
-Nothing in the object storage is kept indefinitely, and the compose setup shows both halves. Each object the doc
-service writes carries a `jeap-doc-content` tag saying what it *is*, and
-[`docker/docker-compose.yml`](docker/docker-compose.yml) creates a lifecycle rule per value with the bucket:
+Nothing in the object storage is kept indefinitely, and what removes it is not the same thing for both kinds.
+Each object the doc service writes carries a `jeap-doc-content` tag saying what it *is*, and
+[`docker/docker-compose.yml`](docker/docker-compose.yml) creates the lifecycle rule with the bucket:
 
-| Tag | What expires it | After |
-| --- | --------------- | ----- |
-| `upload` | The doc service forgets the upload in its database after `jeap.doc.upload.housekeeping.retention` - 14 days - and the rule expires its bundle a day later, so an upload never points at a bundle that is already gone | 15 days |
-| `site` | The doc service keeps the last `jeap.doc.build.retention` published sites per site and deletes the rest after every successful build; the rule is the fallback for what it never gets to delete. A site regenerated several times a day has nothing worth keeping for longer - and nothing under the site prefix is a source of truth | 2 days |
+| Tag      | What removes it                                                                                                                                                                                                                 | After   |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| `upload` | The doc service forgets the upload in its database after `jeap.doc.upload.housekeeping.retention` - 14 days - and the lifecycle rule expires its bundle a day later, so an upload never points at a bundle that is already gone | 15 days |
+| `site`   | The doc service itself, after every successful build of that part, down to `jeap.doc.build.retention` publications. **There is no lifecycle rule over the sites, and there may not be one at any value** - see below            | -       |
 
-The rules select on the tag rather than on a prefix, because `jeap.doc.storage.upload-prefix` and `.site-prefix`
+**An age rule over the generated sites would take the site offline.** A part whose content hashes to what is
+already published is not generated and uploads nothing, so the objects a part is serving keep the date of the
+build that last *changed* that part - and a part nobody edits is as old as the part itself. A rule on age would
+therefore expire exactly the documentation nobody has had to touch: its pages answer `503` or `404` while the
+database still says the part is published, and the next build finds the digest unchanged and heals nothing. What
+removes a publication a part has superseded is the doc service, which is the only thing that knows which objects
+those are.
+
+The rule selects on the tag rather than on a prefix, because `jeap.doc.storage.upload-prefix` and `.site-prefix`
 are configured per instance while the tag is the same everywhere. Wherever this instance is deployed for real,
-both rules belong to the infrastructure code creating the bucket - and the service needs `s3:PutObject` **and
-`s3:PutObjectTagging`** on it, because the tag travels with the object.
+the rules belong to the infrastructure code creating the bucket - and the service needs `s3:PutObject`,
+**`s3:PutObjectTagging`** and `s3:DeleteObject` on it, because the tag travels with the object and the service
+does its own housekeeping. See
+[operating the bucket](https://github.com/jeap-admin-ch/jeap-doc-service/blob/main/docs/operating-the-bucket.md).
 
 ### Run the integration test
 
@@ -262,20 +340,24 @@ under the same upload id (`200`, the same `id`) and a different documentation se
 upload for another system and the one with the read role only (`403`), the upload without a token (`401`), an
 upload that does not describe a documentation set and one with a mistyped parameter (`400`), an upload that
 announces no size (`411`), reading the state of an upload back, and the bundle lying in the object storage under
-the id of the upload - tagged, so the lifecycle rule of the bucket expires it.
+the id of the upload - tagged, so the lifecycle rule of the bucket expires it. It also drives the step before the
+upload: a tree that follows arc42 (`200`, with the chapters the template allows), one that does not (`422`,
+`UNKNOWN_CHAPTER`), a name the generator writes into that chapter itself (`RESERVED_NAME`), the validation for
+another system (`403`) and the one carrying a parameter a structure does not depend on (`400`).
 
 [`DocSiteExampleIT`](jme-doc-test/src/test/java/ch/admin/bit/jeap/jme/doc/DocSiteExampleIT.java) is the other
 half: it generates the site and reads what the generator did. **It really runs the site generator**, so it is the
 suite that fails when Node is missing or too old - see
-[Running the example on a developer machine](docs/local-development.md). It covers an upload asking for a build of
-its site and that build succeeding, an operator asking for one (`202`, `MANUAL`, `picksUpWithinSeconds`) and the
-site being published, the site then being served to anyone without a token - with the title this instance
-configures - each environment under its own path, the form of a route without its trailing slash (`301`), the
-site's own not-found page (`404`), the build history with what the run produced and how much of it was Docusaurus,
-the generated files lying in the object storage under the prefix of their build and tagged so the second
-lifecycle rule expires them, and the role matrix in both directions: a pipeline may not publish the site and an
-operator may not upload documentation (`403`), no token is `401`, and a site this instance does not configure is
-`404`.
+[Running the example on a developer machine](docs/local-development.md). It covers an operator asking for the
+whole site (`202`, `partsRequested`, `picksUpWithinSeconds`) and it being published, the parts the site is
+published as - here the shell alone - with what is published for each and how old it is, the site then being
+served to anyone without a token with the title this instance configures, each environment under its own path,
+the form of a route without its trailing slash (`301`), the search page, the site's own not-found page (`404`),
+the build history of the site and of one part with what the run produced and how much of it was Docusaurus, the generated files
+lying in the object storage under the prefix of their build and tagged, asking for one part on its own, a part
+the site does not have (`404`), and the role matrix in both directions: a pipeline may not publish the site or
+read what it published and an operator may not upload documentation (`403`), no token is `401`, and a site this
+instance does not configure is `404`.
 
 ## Configuration of the instance
 

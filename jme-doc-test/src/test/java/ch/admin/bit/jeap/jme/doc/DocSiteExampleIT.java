@@ -30,6 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.endsWith;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
@@ -46,16 +47,21 @@ import static org.hamcrest.Matchers.nullValue;
  * {@code jeap.doc.build.*} configuration is where to look, and {@code docs/local-development.md} says what it
  * has to point at.
  * <p>
- * Two rules an operator has to know are shown. <b>Asking is not building</b>: the endpoint leaves a request that
- * an instance picks up on its next poll, and answers how long that takes at most. And <b>administering a site is
- * not a system's own business</b>: the upload roles carry the system in their tenant part so that a pipeline can
- * only change its own documentation, while a build regenerates the whole site with the documentation of every
- * system on it - so it is granted on a resource of its own that no pipeline holds.
+ * <b>A site is published as one build per part</b>, not as one build of the whole. A part is a set of whole URL
+ * subtrees, and the partition cuts a site into one part per system plus the <i>shell</i> - the part carrying the
+ * site's own pages and everything no system claims. Which systems a site has is what an architecture repository
+ * tells it, and <b>this example configures none</b>: its site is the shell and nothing else, which is a
+ * legitimate configuration and the smallest one there is. Everything below is therefore about one part, and the
+ * parts endpoint is where an instance with a landscape behind it would show a great many.
  * <p>
- * The tests are ordered because they are one story: an upload asks for a build, an operator asks for one and the
- * site is published, and everything after that reads what those two left behind. That several triggers collapse
- * into a single build is not asserted here - that is the doc service's own behaviour and is covered there. This
- * suite is about the instance being wired up correctly.
+ * <b>Administering a site is not a system's own business.</b> The upload roles carry the system in their tenant
+ * part so that a pipeline can only change its own documentation, while a build regenerates a part with the
+ * documentation of every repository in it - so it is granted on a resource of its own that no pipeline holds.
+ * <p>
+ * The tests are ordered because they are one story: an operator asks for the site, it is published, and
+ * everything after that reads what that build left behind. That several triggers collapse into a single build is
+ * not asserted here - that is the doc service's own behaviour and is covered there. This suite is about the
+ * instance being wired up correctly.
  */
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
@@ -72,8 +78,17 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      */
     private static final String SITE = "default";
 
+    /**
+     * The part that carries the site's own pages - its root page, the systems index, the page about the
+     * documentation - and everything no other part claims. It is the one part every site has whatever the
+     * architecture model holds, and here it is the only one.
+     */
+    private static final String SHELL_PART = "shell";
+
     private static final String SITE_PATH = "/api/sites/" + SITE;
     private static final String BUILDS_PATH = SITE_PATH + "/builds";
+    private static final String PARTS_PATH = SITE_PATH + "/parts";
+    private static final String SHELL_BUILDS_PATH = PARTS_PATH + "/" + SHELL_PART + "/builds";
     private static final String UPLOAD_PATH = "/api/uploads/docs/";
 
     /** What the site of this example calls itself - configured in the instance, and read back off the page. */
@@ -82,20 +97,20 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     /**
      * How often the instance under test looks whether a build has been asked for. Far below the 30 seconds of a
      * real instance, because every test here waits for a build: it is the one number that decides how long this
-     * suite takes, and the endpoint answers it as {@code picksUpWithinSeconds}, which is asserted below.
+     * suite takes, and the endpoints answer it as {@code picksUpWithinSeconds}, which is asserted below.
      */
     private static final int POLL_INTERVAL_SECONDS = 2;
 
     /**
-     * How long a build may take before the suite gives up on it. Generously above the ten to twenty seconds the
-     * site generator needs, because the first run on a cold machine has a bundler to warm up.
+     * How long a build may take before the suite gives up on it. Generously above the twenty to thirty seconds
+     * the site generator needs, because the first run on a cold machine has a bundler to warm up.
      */
     private static final Duration BUILD_TIMEOUT = Duration.ofMinutes(5);
 
     /**
-     * The tag every file of a generated site carries, and what the second lifecycle rule of the bucket selects
-     * on - see docker/docker-compose.yml. The bundle of an upload carries the same key with the value
-     * {@code upload}, which is what keeps one rule from expiring the other's objects.
+     * The tag every file of a generated site carries - see docker/docker-compose.yml. The bundle of an upload
+     * carries the same key with the value {@code upload}, which is what lets the lifecycle rule of the bucket
+     * expire the bundles without touching the sites.
      */
     private static final String SITE_TAG_KEY = "jeap-doc-content";
     private static final String SITE_TAG_VALUE = "site";
@@ -119,7 +134,8 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * an outcome of this suite the outcome of something it did:
      * <ul>
      *   <li>the poll interval, so a build starts seconds after it is asked for instead of within half a minute;
-     *   <li>no publication schedule, so the only builds that happen are the ones these tests ask for;
+     *   <li>no reconcile schedule, so the only builds that happen are the ones these tests ask for - it is the
+     *       schedule that publishes a site no architecture import feeds, which is exactly this one;
      *   <li>the publication URL, which names the origin in the metadata of the generated pages - and the service
      *       runs on a free port here rather than on the 8080 the instance configures.
      * </ul>
@@ -137,40 +153,19 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
                 "jeap.security.oauth2.resourceserver.authorization-server.jwk-set-uri",
                 AUTH_BASE_URL + "/.well-known/jwks.json",
                 "jeap.doc.build.poll-interval", "PT" + POLL_INTERVAL_SECONDS + "S",
-                "jeap.doc.sites." + SITE + ".publication-schedule", "",
+                "jeap.doc.build.reconcile-cron", "-",
                 "jeap.doc.publication.url", "http://localhost:" + DOC_PORT));
     }
 
     /**
-     * The other half of what an upload does. The pipeline asks for nothing but the upload; the site it uploaded
-     * to is published because it is configured to be published on upload - which is the default, and is what
-     * makes documentation appear without anybody operating anything.
+     * Asking is not building: the answer is a 202 saying how many parts are now owed a build and how long it
+     * takes at most until an instance claims one, and the builds then happen on that instance rather than on the
+     * request thread. One part here, and the ask is the forcing kind - every part is published whether its
+     * content moved or not, which is what an operator wants after a change outside the content.
      */
     @Test
     @Order(1)
-    void anUploadAsksForABuildOfTheSiteItBelongsTo() {
-        long before = newestBuildId();
-
-        given().baseUri(DOC_BASE_URL)
-                .auth().oauth2(uploadToken())
-                .contentType("application/zip")
-                .queryParams(DocumentationSets.parameters())
-                .body(DocumentationSets.bundle())
-                .when()
-                .put(UPLOAD_PATH + UUID.randomUUID())
-                .then()
-                .statusCode(201);
-
-        awaitSucceededBuildAfter(before, "UPLOAD");
-    }
-
-    /**
-     * Asking is not building: the answer is a 202 saying that the request stands and how long it takes at most
-     * until an instance claims it, and the build then happens on that instance rather than on the request thread.
-     */
-    @Test
-    @Order(2)
-    void askingForABuildPublishesTheSite() {
+    void askingForTheWholeSitePublishesEveryPartOfIt() {
         long before = newestBuildId();
 
         given().baseUri(DOC_BASE_URL)
@@ -180,9 +175,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
                 .then()
                 .statusCode(202)
                 .body("site", equalTo(SITE))
-                .body("requested", equalTo(true))
-                .body("trigger", equalTo("MANUAL"))
-                .body("pendingSince", notNullValue())
+                .body("partsRequested", equalTo(1))
                 .body("picksUpWithinSeconds", equalTo(POLL_INTERVAL_SECONDS));
 
         publishedBuildId = awaitSucceededBuildAfter(before, "MANUAL");
@@ -192,7 +185,38 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
         assertThat(status.getString("title")).isEqualTo(SITE_TITLE);
         assertThat(status.getList("environments", String.class)).containsExactly("dev", "ref", "abn", "prod");
         assertThat(status.getBoolean("publishOnUpload")).isTrue();
+        // The shell's publication, which is what says the site is being served at all.
         assertThat(status.getLong("published.id")).isEqualTo(publishedBuildId);
+        assertThat(status.getString("published.part")).isEqualTo(SHELL_PART);
+    }
+
+    /**
+     * What the site is published as, and the answer to <i>is this documentation up to date</i> now that no
+     * single build is the site: per part what it carries, what is published for it, how old that is and whether
+     * a build of it is owed. A part nobody has rebuilt for a week either has not changed for a week or has
+     * stopped being built, and the two are told apart by whether any other part is younger.
+     */
+    @Test
+    @Order(2)
+    void theSiteIsPublishedAsPartsAndHereTheShellIsTheOnlyOne() {
+        JsonPath parts = readJson(PARTS_PATH);
+
+        assertThat(parts.getList("part", String.class)).containsExactly(SHELL_PART);
+
+        given().baseUri(DOC_BASE_URL)
+                .auth().oauth2(operatorToken())
+                .when()
+                .get(PARTS_PATH)
+                .then()
+                .statusCode(200)
+                .body("[0].documents", equalTo("the site itself"))
+                .body("[0].environments", equalTo(List.of("dev", "ref", "abn", "prod")))
+                // The shell owns no subtree of its own: it answers for whatever no other part claims.
+                .body("[0].routePrefixes", empty())
+                .body("[0].publishedAt", notNullValue())
+                .body("[0].ageSeconds", notNullValue())
+                .body("[0].contentDigest", notNullValue())
+                .body("[0].owedABuild", equalTo(false));
     }
 
     /**
@@ -237,11 +261,27 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     }
 
     /**
+     * The site has a search of its own, at a page of its own, and it is served to a reader without a token like
+     * the rest of the documentation. The index behind it is built at the end of the build pass that published
+     * the site - not on a schedule, and never able to fail a publication.
+     */
+    @Test
+    @Order(5)
+    void theSiteHasASearchPage() {
+        given().baseUri(DOC_BASE_URL)
+                .when()
+                .get("/search/")
+                .then()
+                .statusCode(200)
+                .body(containsString("Search"));
+    }
+
+    /**
      * The site brings its own not-found page, and it is served with the status that says so - a reader gets the
      * navigation of the documentation they were looking for rather than an error page of the service.
      */
     @Test
-    @Order(5)
+    @Order(6)
     void anUnknownPageIsAnsweredWithTheSitesOwnNotFoundPage() {
         given().baseUri(DOC_BASE_URL)
                 .when()
@@ -253,11 +293,12 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
 
     /**
      * What the generator has been doing, which is the answer to <i>why is this site not updating</i> without
-     * reading a log: every run with its trigger, its state, what it produced, and how much of the run was the
-     * site generator itself.
+     * reading a log: every run with the part it produced, its trigger, its state, what it cost, and the digest of
+     * the content it wrote - which is what a later run compares against to decide whether that part has to be
+     * generated at all.
      */
     @Test
-    @Order(6)
+    @Order(7)
     void theHistorySaysWhatTheGeneratorDid() {
         given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(operatorToken())
@@ -265,6 +306,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
                 .get(BUILDS_PATH + "/" + publishedBuildId)
                 .then()
                 .statusCode(200)
+                .body("part", equalTo(SHELL_PART))
                 .body("trigger", equalTo("MANUAL"))
                 .body("state", equalTo("SUCCEEDED"))
                 .body("startedAt", notNullValue())
@@ -274,18 +316,31 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
                 .body("pageCount", greaterThan(0))
                 .body("sizeInBytes", greaterThan(0))
                 .body("docusaurusMillis", greaterThan(0))
+                .body("contentDigest", notNullValue())
                 .body("failureReason", nullValue());
 
         assertThat(buildIds()).isSortedAccordingTo(Comparator.reverseOrder()).contains(publishedBuildId);
     }
 
     /**
-     * Where a generated site ends up: under the prefix the build record names, below the site prefix of the
-     * instance, and tagged - so that the lifecycle rule of the bucket expires the sites nobody serves any more
-     * without touching the bundles of the uploads, which carry the same tag key with a different value.
+     * The history of the whole site is every part's; the history of one part is where an operator looks when one
+     * part of a site has stopped being published while the rest of it is fine.
      */
     @Test
-    @Order(7)
+    @Order(8)
+    void theBuildsOfOnePartAreReadableOnTheirOwn() {
+        JsonPath builds = readJson(SHELL_BUILDS_PATH);
+
+        assertThat(builds.getList("id", Long.class)).contains(publishedBuildId);
+        assertThat(builds.getList("part", String.class)).containsOnly(SHELL_PART);
+    }
+
+    /**
+     * Where a generated site ends up: under the prefix the build record names, below the site prefix of the
+     * instance, and tagged - a build id is used once, so nothing that is being read is ever written to.
+     */
+    @Test
+    @Order(9)
     void theGeneratedSiteLiesInTheObjectStorageUnderThePrefixOfItsBuild() {
         String prefix = "sites/" + SITE + "/" + publishedBuildId + "/";
 
@@ -304,16 +359,62 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     }
 
     /**
-     * A pipeline may not publish the site. Its role is granted per system in the tenant part precisely so that it
-     * can only change its own system's documentation, and a build republishes the documentation of every system
-     * on the site - so the upload role is not a lever over it, and neither is the role that reads the upload API.
+     * One part on its own, which is what an operator asks for when one part of a site is wrong and the rest of it
+     * is expensive to rebuild. The ask leaves the same collapsing request every other trigger leaves, so an ask
+     * that joins one already pending is answered {@code requested=false} and the same 202.
      */
     @Test
-    @Order(8)
+    @Order(10)
+    void askingForOnePartAsksForThatPartAlone() {
+        long before = newestBuildId();
+
+        given().baseUri(DOC_BASE_URL)
+                .auth().oauth2(operatorToken())
+                .when()
+                .post(SHELL_BUILDS_PATH)
+                .then()
+                .statusCode(202)
+                .body("site", equalTo(SITE))
+                .body("part", equalTo(SHELL_PART))
+                .body("requested", equalTo(true))
+                .body("trigger", equalTo("MANUAL"))
+                .body("pendingSince", notNullValue())
+                .body("picksUpWithinSeconds", equalTo(POLL_INTERVAL_SECONDS));
+
+        awaitSucceededBuildAfter(before, "MANUAL");
+    }
+
+    /**
+     * A part is looked up among the parts the site really has rather than derived from the identifier. This
+     * example documents no system, so {@code system-jme} is a part of no site here - and an operator who asks for
+     * one is told so instead of watching an empty build be published under it.
+     */
+    @Test
+    @Order(11)
+    void askingForAPartTheSiteDoesNotHaveIsNotFound() {
+        given().baseUri(DOC_BASE_URL)
+                .auth().oauth2(operatorToken())
+                .when()
+                .post(PARTS_PATH + "/system-" + DocumentationSets.SYSTEM + "/builds")
+                .then()
+                .statusCode(404);
+    }
+
+    /**
+     * A pipeline may not publish the site. Its role is granted per system in the tenant part precisely so that it
+     * can only change its own system's documentation, and a build republishes a part with the documentation of
+     * every repository in it - so the upload role is not a lever over it, and neither is the role that reads the
+     * upload API.
+     */
+    @Test
+    @Order(12)
     void askingForABuildWithAnythingButTheAdminRoleIsRejected() {
-        assertThat(statusOfAskingForABuildWith(uploadToken())).isEqualTo(403);
-        assertThat(statusOfAskingForABuildWith(fetchAccessToken(AUTH_BASE_URL, "jme-doc-reader", "secret")))
-                .isEqualTo(403);
+        String readerToken = fetchAccessToken(AUTH_BASE_URL, "jme-doc-reader", "secret");
+
+        assertThat(statusOfPosting(BUILDS_PATH, uploadToken())).isEqualTo(403);
+        assertThat(statusOfPosting(BUILDS_PATH, readerToken)).isEqualTo(403);
+        assertThat(statusOfPosting(SHELL_BUILDS_PATH, uploadToken())).isEqualTo(403);
+        assertThat(statusOfPosting(SHELL_BUILDS_PATH, readerToken)).isEqualTo(403);
     }
 
     /**
@@ -321,7 +422,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * of a system. The two resources are separate in both directions.
      */
     @Test
-    @Order(9)
+    @Order(13)
     void uploadingWithTheOperatorRoleIsRejected() {
         given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(operatorToken())
@@ -335,29 +436,26 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     }
 
     @Test
-    @Order(10)
+    @Order(14)
     void readingTheStateOfTheSiteWithAnUploadRoleIsRejected() {
-        given().baseUri(DOC_BASE_URL)
-                .auth().oauth2(uploadToken())
-                .when()
-                .get(SITE_PATH)
-                .then()
-                .statusCode(403);
-
-        given().baseUri(DOC_BASE_URL)
-                .auth().oauth2(uploadToken())
-                .when()
-                .get(BUILDS_PATH)
-                .then()
-                .statusCode(403);
+        for (String path : List.of(SITE_PATH, BUILDS_PATH, PARTS_PATH, SHELL_BUILDS_PATH)) {
+            given().baseUri(DOC_BASE_URL)
+                    .auth().oauth2(uploadToken())
+                    .when()
+                    .get(path)
+                    .then()
+                    .statusCode(403);
+        }
     }
 
     @Test
-    @Order(11)
+    @Order(15)
     void administeringASiteWithoutATokenIsRejected() {
+        for (String path : List.of(SITE_PATH, BUILDS_PATH, PARTS_PATH, SHELL_BUILDS_PATH)) {
+            given().baseUri(DOC_BASE_URL).when().get(path).then().statusCode(401);
+        }
         given().baseUri(DOC_BASE_URL).when().post(BUILDS_PATH).then().statusCode(401);
-        given().baseUri(DOC_BASE_URL).when().get(SITE_PATH).then().statusCode(401);
-        given().baseUri(DOC_BASE_URL).when().get(BUILDS_PATH).then().statusCode(401);
+        given().baseUri(DOC_BASE_URL).when().post(SHELL_BUILDS_PATH).then().statusCode(401);
     }
 
     /**
@@ -365,7 +463,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * something that might appear later - and it is refused rather than answered with an empty history.
      */
     @Test
-    @Order(12)
+    @Order(16)
     void askingForABuildOfASiteThisInstanceDoesNotConfigureIsNotFound() {
         given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(operatorToken())
@@ -376,9 +474,10 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     }
 
     /**
-     * Waits for the build one of this suite's triggers asked for, and answers its id. It has to be a newer build
-     * than what stood before, so that a run left over from an earlier suite - or from an earlier run against the
-     * same containers, which keep their data between runs - can never be mistaken for the one just asked for.
+     * Waits for the build one of this suite's asks led to, and answers its id. It has to be a newer build than
+     * what stood before, so that a run left over from an earlier suite - or from an earlier run against the same
+     * containers, which keep their data while they are left running - can never be mistaken for the one just
+     * asked for.
      */
     private long awaitSucceededBuildAfter(long previousNewestBuildId, String trigger) {
         String succeededBuildsOfThatTrigger =
@@ -400,7 +499,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
         return history().getList("id", Long.class);
     }
 
-    /** The build history, newest first, read with the role that may read it. */
+    /** The build history of every part of the site, newest first, read with the role that may read it. */
     private JsonPath history() {
         return given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(operatorToken())
@@ -424,11 +523,11 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
                 .jsonPath();
     }
 
-    private int statusOfAskingForABuildWith(String accessToken) {
+    private int statusOfPosting(String path, String accessToken) {
         return given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(accessToken)
                 .when()
-                .post(BUILDS_PATH)
+                .post(path)
                 .then()
                 .extract()
                 .statusCode();

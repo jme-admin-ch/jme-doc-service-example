@@ -29,8 +29,10 @@ import java.util.stream.Collectors;
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.notNullValue;
 
 /**
@@ -39,6 +41,11 @@ import static org.hamcrest.Matchers.notNullValue;
  * The test starts both services and shows the two rules a doc pipeline has to know: a pipeline may publish the
  * documentation of its own system and of no other system, and the upload id it chooses is the idempotency key of
  * the upload - repeating a request under it never publishes a second documentation set.
+ * <p>
+ * It also drives the step <b>before</b> the upload: a pipeline sends the paths it is about to pack and is told
+ * whether the doc service would accept them, so a misfiled tree costs a request rather than a build. Nothing is
+ * stored by that call and no file's bytes are sent - what is in the files is the doc workflow's own half of the
+ * validation.
  */
 class DocServiceExampleIT extends BootServiceSpringIntegrationTestBase {
 
@@ -49,6 +56,12 @@ class DocServiceExampleIT extends BootServiceSpringIntegrationTestBase {
     private static final String DOC_BASE_URL = "http://localhost:" + DOC_PORT + "/jme-doc-service";
 
     private static final String SYSTEM = DocumentationSets.SYSTEM;
+
+    /**
+     * Below the upload path, because what is validated is a documentation upload - the same parameters, the
+     * same role, and the same interceptor refusing a parameter the doc service does not know.
+     */
+    private static final String VALIDATION_PATH = "/api/uploads/docs/validation";
 
     /**
      * The tag every uploaded bundle carries. The lifecycle rule of the bucket selects on it rather than on the
@@ -310,6 +323,113 @@ class DocServiceExampleIT extends BootServiceSpringIntegrationTestBase {
                     .bucket(documentationBucket).key(key).build()).tagSet();
             assertThat(tags).extracting(Tag::key, Tag::value).containsExactly(tuple(UPLOAD_TAG_KEY, UPLOAD_TAG_VALUE));
         }
+    }
+
+    /**
+     * The verdict is the status line: {@code 200} publish, {@code 422} print the findings and stop. The body of
+     * an accepted tree is not empty all the same - it carries the chapters the template allows, so a workflow
+     * can print them once instead of the service repeating them in every message.
+     */
+    @Test
+    void aTreeThatFollowsTheTemplateIsAccepted() {
+        validate(uploadToken(), DocumentationSets.paths())
+                .then()
+                .statusCode(200)
+                .contentType("application/json")
+                .body("template", equalTo("arc42"))
+                .body("pathsChecked", equalTo(DocumentationSets.paths().size()))
+                .body("pathsIgnored", equalTo(0))
+                .body("findings", empty())
+                .body("findingsOmitted", equalTo(0))
+                .body("allowedFolders", hasItem("6-runtime-view"))
+                .body("allowedExtensions", hasItem("md"));
+    }
+
+    /**
+     * A chapter arc42 does not have. The answer is the problem document of the upload API, carrying the report
+     * as extension members, and a finding names the path it is about - which is the half a pipeline prints for
+     * whoever wrote the file.
+     */
+    @Test
+    void aTreeThatDoesNotFollowTheTemplateIsReportedBeforeItIsPacked() {
+        validate(uploadToken(), List.of("1-intro/why-we-built-this.md",
+                                        "4-runtime-view/how-an-upload-travels.md"))
+                .then()
+                .statusCode(422)
+                .contentType("application/problem+json")
+                .body("type", equalTo("https://jeap.admin.ch/problems/docs/structure-invalid"))
+                .body("template", equalTo("arc42"))
+                .body("pathsChecked", equalTo(2))
+                .body("findings.code", hasItem("UNKNOWN_CHAPTER"))
+                .body("findings.find { it.code == 'UNKNOWN_CHAPTER' }.path",
+                      equalTo("4-runtime-view/how-an-upload-travels.md"));
+    }
+
+    /**
+     * A name the site generator writes into that chapter itself. A leading number is not part of a name, so
+     * {@code 01-index.md} is the chapter's generated landing page under another file name - two files at one
+     * URL, reported before the ZIP exists rather than failing the build of a part hours later.
+     */
+    @Test
+    void aNameTheGeneratorWritesIntoTheChapterIsReserved() {
+        validate(uploadToken(), List.of("1-intro/01-index.md"))
+                .then()
+                .statusCode(422)
+                .body("findings.code", hasItem("RESERVED_NAME"));
+    }
+
+    /**
+     * The role is the upload one, checked for the system named in the request - so a pipeline of another system
+     * is refused here exactly as it is on the upload itself.
+     */
+    @Test
+    void validationForAnotherSystemIsRejected() {
+        String accessToken = fetchAccessToken(AUTH_BASE_URL, "other-system-doc-pipeline", "secret");
+
+        validate(accessToken, DocumentationSets.paths())
+                .then()
+                .statusCode(403);
+    }
+
+    /**
+     * A structure does not depend on a commit hash, so this endpoint accepts fewer parameters than the upload
+     * does - and a pipeline that passes its whole doc workflow configuration through is told so rather than
+     * having the surplus ignored.
+     */
+    @Test
+    void validationWithAParameterTheStructureDoesNotDependOnIsRejected() {
+        given().baseUri(DOC_BASE_URL)
+                .auth().oauth2(uploadToken())
+                .contentType("application/json")
+                .queryParams(documentationSetParameters())
+                .body(Map.of("paths", DocumentationSets.paths()))
+                .when()
+                .post(VALIDATION_PATH)
+                .then()
+                .statusCode(400)
+                .body("code", equalTo("UNKNOWN_PARAMETER"));
+    }
+
+    @Test
+    void validationWithoutTokenIsRejected() {
+        given().baseUri(DOC_BASE_URL)
+                .contentType("application/json")
+                .queryParams(DocumentationSets.structureParameters())
+                .body(Map.of("paths", DocumentationSets.paths()))
+                .when()
+                .post(VALIDATION_PATH)
+                .then()
+                .statusCode(401);
+    }
+
+    private static Response validate(String accessToken, List<String> paths) {
+        return given().baseUri(DOC_BASE_URL)
+                .auth().oauth2(accessToken)
+                .contentType("application/json")
+                .queryParams(DocumentationSets.structureParameters())
+                .body(Map.of("paths", paths))
+                .when()
+                .post(VALIDATION_PATH);
     }
 
     /**

@@ -50,24 +50,27 @@ services:
       start_period: 10s
 
   # The doc service does not start when its bucket is missing, so the bucket is created with the storage - and
-  # so are the lifecycle rules, because they belong to the bucket rather than to the service. Both select on
+  # so is its lifecycle rule, because a rule belongs to the bucket rather than to the service. It selects on
   # the tag the doc service writes on every object, not on a prefix: jeap.doc.storage.upload-prefix and
   # .site-prefix are configured per instance while the tag is the same everywhere.
   #
   #   jeap-doc-content=upload  the bundle of an upload. The doc service removes the upload from its database
   #                            after jeap.doc.upload.housekeeping.retention - 14 days - and the bundle is
   #                            expired here a day later, so an upload never outlives its bundle.
-  #   jeap-doc-content=site    the files of a generated site. Two days: a site is regenerated several times a
-  #                            day, so anything two days old is a build nobody will ever serve again, and the
-  #                            retention of jeap.doc.build.retention will normally have deleted it hours
-  #                            earlier. Nothing under the site prefix is a source of truth - a site is derived
-  #                            from the template and the architecture model - so the worst an age-based rule
-  #                            can do is take the site offline until the next build.
   #
-  # Wherever this instance is deployed for real, both rules belong to the infrastructure code creating the
-  # bucket; this is where they can be tried first.
+  # There is deliberately NO rule over the generated sites, at any value. A site is published as one build per
+  # part, and a build whose content hashes to what is already published uploads nothing - so the objects a
+  # part is serving keep the date of the build that last changed that part, and a part nobody edits is as old
+  # as the part itself. An age rule would expire exactly the documentation nobody has had to touch, and the
+  # next build would find its digest unchanged and heal nothing. What removes a publication a part has
+  # superseded is the doc service, after every successful build, down to jeap.doc.build.retention - it is the
+  # only thing that knows which objects those are.
+  #
+  # Wherever this instance is deployed for real, the rules belong to the infrastructure code creating the
+  # bucket; this is where they can be tried first. See
+  # https://github.com/jeap-admin-ch/jeap-doc-service/blob/main/docs/operating-the-bucket.md
   jme-doc-objectstorage-init:
-    image: amazon/aws-cli:2.36.40
+    image: amazon/aws-cli:2.36.41
     depends_on:
       jme-doc-objectstorage:
         condition: service_healthy
@@ -79,7 +82,7 @@ services:
         aws --endpoint-url http://jme-doc-objectstorage:9000 s3api create-bucket --bucket jme-doc-service-documents || true
         aws --endpoint-url http://jme-doc-objectstorage:9000 s3api put-bucket-lifecycle-configuration \
           --bucket jme-doc-service-documents \
-          --lifecycle-configuration '{"Rules":[{"ID":"expire-jeap-doc-uploads","Status":"Enabled","Filter":{"Tag":{"Key":"jeap-doc-content","Value":"upload"}},"Expiration":{"Days":15},"NoncurrentVersionExpiration":{"NoncurrentDays":1}},{"ID":"expire-jeap-doc-sites","Status":"Enabled","Filter":{"Tag":{"Key":"jeap-doc-content","Value":"site"}},"Expiration":{"Days":2},"NoncurrentVersionExpiration":{"NoncurrentDays":1}}]}'
+          --lifecycle-configuration '{"Rules":[{"ID":"expire-jeap-doc-uploads","Status":"Enabled","Filter":{"Tag":{"Key":"jeap-doc-content","Value":"upload"}},"Expiration":{"Days":15},"NoncurrentVersionExpiration":{"NoncurrentDays":1}}]}'
     environment:
       AWS_ACCESS_KEY_ID: rustfsadmin
       AWS_SECRET_ACCESS_KEY: rustfsadmin
