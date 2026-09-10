@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.1] - 2026-09-10
+
+### Added
+
+- **The example generates documentation.** A new module, `jme-doc-upstream-stub`, answers the `/docs-api` of an
+  architecture repository over a landscape of two systems of two components each, so the doc service imports a
+  model and publishes the arc42 trees generated from it - the context views, the messages, the REST APIs.
+- The integration test drives the whole chain: an operator asks for the import, the import asks for every part
+  of the site, the parts are published, and the pages are then read **in a real browser** - the one place a
+  rendered diagram and the search can be seen at all.
+
+### Changed
+
+- One part of the site is generated at a time (`jeap.doc.build.max-concurrent-parts`), and
+  `jeap.doc.build.node-modules-directory` is absolute: the search indexer symlinks it, so a relative path
+  leaves the index without pagefind.
+
 ## [4.0.0] - 2026-09-10
 
 ### Changed

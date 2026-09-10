@@ -39,11 +39,21 @@ jeap:
         cron: "0 30 2 * * *"
     build:
       # Where the site template's dependencies were installed - by the Maven build of this module into
-      # target/site-install, so the path is relative to the directory the service is started in. An instance
-      # that ships a container puts them into its image instead and points this at an absolute path; see the
-      # doc service's docs/site-image.md. Without them the service does not start: it would otherwise fail
+      # target/site-install. An instance that ships a container puts them into its image instead; see the doc
+      # service's docs/site-image.md. Without them the service does not start: it would otherwise fail
       # fifteen minutes into the first build, deep inside the bundler.
-      node-modules-directory: target/site-install/node_modules
+      #
+      # It has to be an ABSOLUTE path: the search indexer symlinks this directory into a workspace of its own
+      # under the build directory, and a relative path would be resolved against that workspace rather than
+      # against the service - the link would dangle and the index would be built without pagefind. ${user.dir}
+      # is the directory Maven starts this module in, which is the module itself.
+      node-modules-directory: ${user.dir}/target/site-install/node_modules
+      # How many parts of the site this instance generates at once. One, deliberately: every concurrent build
+      # holds a Docusaurus run in the same container, so this is a memory decision rather than a parallelism
+      # one - and a landscape of two systems is three parts, which one after another is fast enough on a
+      # developer machine and in the build. An instance with a real landscape behind it raises this against
+      # the memory a build is measured to hold.
+      max-concurrent-parts: 1
       # The Node runtime, and the default. The site generator runs as a child process whose environment is
       # built from nothing, so a bare command name is looked up on /usr/bin:/bin and not on the PATH of
       # whoever started the service: a developer machine whose Node comes from nvm, fnm, asdf or Homebrew has

@@ -1,0 +1,102 @@
+# The landscape every stubbed upstream answers about - see Landscape.java.
+#
+# Two systems of two components each, which is the smallest landscape that shows anything: one system alone
+# has no neighbour in its context view and no message of another system on its components' pages. The names
+# of the 'jme' system are the services this example really runs, so that the documentation set the integration
+# test uploads names a component that exists.
+#
+# The field names are the ones the architecture repository puts on the wire.
+stub:
+  systems:
+
+    - name: "jme"
+      description: >
+        The example system of this repository: a doc service that receives documentation and publishes it, and
+        the OAuth mock server issuing the tokens its pipelines hold.
+      team:
+        name: "JME"
+        contact-address: "jeap-community@bit.admin.ch"
+      components:
+        - name: "jme-doc-service"
+          description: "Receives the documentation of the system and publishes the documentation site."
+          type: "SELF_CONTAINED_SYSTEM"
+          importer: "stub"
+          rest-apis:
+            - { method: "PUT", path: "/api/uploads/docs/{uploadId}" }
+            - { method: "POST", path: "/api/sites/{site}/builds" }
+        - name: "jme-doc-auth-scs"
+          description: "Issues the tokens the doc pipelines authenticate with."
+          type: "BACKEND_SERVICE"
+          importer: "stub"
+          rest-apis:
+            - { method: "POST", path: "/oauth2/token" }
+      relations:
+        # Within the system: the doc service validates its tokens against the mock server.
+        - type: "REST_API_RELATION"
+          consumer-system: "jme"
+          consumer: "jme-doc-service"
+          provider-system: "jme"
+          provider: "jme-doc-auth-scs"
+          method: "GET"
+          path: "/.well-known/jwks.json"
+        # Across systems, from the consumer's side. The same edge is declared by the other system too, which
+        # is how the architecture repository stores it: a relation belongs to the system whose page draws it.
+        - type: "EVENT_RELATION"
+          consumer-system: "jme"
+          consumer: "jme-doc-service"
+          provider-system: "orders"
+          provider: "orders-payment-scs"
+          message-type: "OrdersPaymentAcceptedEvent"
+      # No message is defined here: this system consumes one, and a message belongs to the system that owns it.
+      messages: []
+
+    - name: "orders"
+      description: >
+        A second system, so that a context view has a neighbour and a component page has a message it did not
+        define itself.
+      team:
+        name: "Orders"
+        contact-address: "orders@example.ch"
+      components:
+        - name: "orders-intake"
+          description: "Takes orders in and hands them to the payment system."
+          type: "BACKEND_SERVICE"
+          importer: "stub"
+          rest-apis:
+            - { method: "POST", path: "/api/orders" }
+        - name: "orders-payment-scs"
+          description: "Settles the payment of an order and publishes what became of it."
+          type: "SELF_CONTAINED_SYSTEM"
+          importer: "stub"
+      relations:
+        - type: "REST_API_RELATION"
+          consumer-system: "orders"
+          consumer: "orders-intake"
+          provider-system: "orders"
+          provider: "orders-payment-scs"
+          method: "POST"
+          path: "/api/payments"
+        - type: "EVENT_RELATION"
+          consumer-system: "jme"
+          consumer: "jme-doc-service"
+          provider-system: "orders"
+          provider: "orders-payment-scs"
+          message-type: "OrdersPaymentAcceptedEvent"
+      messages:
+        - name: "OrdersPaymentAcceptedEvent"
+          kind: "EVENT"
+          scope: "PUBLIC"
+          topic: "orders.payment"
+          description: "The payment of an order was accepted."
+          versions: [ "1.0.0" ]
+          contracts:
+            - role: "PUBLISHER"
+              component: "orders-payment-scs"
+              system: "orders"
+              topic: "orders.payment"
+              versions: [ "1.0.0" ]
+            - role: "CONSUMER"
+              component: "jme-doc-service"
+              system: "jme"
+              topic: "orders.payment"
+              versions: [ "1.0.0" ]

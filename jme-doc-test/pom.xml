@@ -6,7 +6,7 @@
     <parent>
         <groupId>ch.admin.bit.jeap</groupId>
         <artifactId>jme-doc-service-example</artifactId>
-        <version>4.0.0-SNAPSHOT</version>
+        <version>4.0.1-SNAPSHOT</version>
     </parent>
 
     <artifactId>jme-doc-test</artifactId>
@@ -29,6 +29,16 @@
         <dependency>
             <groupId>io.rest-assured</groupId>
             <artifactId>rest-assured</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Drives the published documentation in a real browser. Two of the things worth asserting about a
+             generated site do not exist over HTTP: the diagrams are fenced source blocks rendered by a
+             Docusaurus plugin in the browser, and the search is a client-side index. An HTTP assertion sees
+             the source block and the empty search page and calls both a pass. -->
+        <dependency>
+            <groupId>com.microsoft.playwright</groupId>
+            <artifactId>playwright</artifactId>
+            <version>${playwright.version}</version>
             <scope>test</scope>
         </dependency>
         <!-- Starts docker/docker-compose.yml with the database and the object storage of the example. -->

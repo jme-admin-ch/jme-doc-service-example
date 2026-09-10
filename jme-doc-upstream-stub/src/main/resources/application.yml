@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: jme-doc-upstream-stub
+  main:
+    banner-mode: off
+  config:
+    # The landscape is a file of its own so that it can be read and edited without wading through the
+    # configuration of the service that serves it.
+    import: "classpath:landscape.yml"
+
+server:
+  servlet:
+    context-path: /${spring.application.name}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      # The integration test waits for /actuator/health/readiness before it points the doc service here.
+      probes:
+        enabled: true
+
+jeap:
+  security:
+    oauth2:
+      resourceserver:
+        # The same system name the doc service issues its roles for, so that the token this stub demands is
+        # 'jme_@architecture-model_#read' - exactly what the architecture repository of the system would.
+        system-name: jme

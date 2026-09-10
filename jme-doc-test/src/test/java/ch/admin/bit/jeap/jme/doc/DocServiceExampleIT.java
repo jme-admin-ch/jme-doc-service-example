@@ -57,6 +57,9 @@ class DocServiceExampleIT extends BootServiceSpringIntegrationTestBase {
 
     private static final String SYSTEM = DocumentationSets.SYSTEM;
 
+    /** The only site this example configures, and the one an upload that names none belongs to. */
+    private static final String SITE = "default";
+
     /**
      * Below the upload path, because what is validated is a documentation upload - the same parameters, the
      * same role, and the same interceptor refusing a parameter the doc service does not know.
@@ -91,7 +94,15 @@ class DocServiceExampleIT extends BootServiceSpringIntegrationTestBase {
                 "server.port", String.valueOf(DOC_PORT),
                 "jeap.security.oauth2.resourceserver.authorization-server.issuer", AUTH_BASE_URL,
                 "jeap.security.oauth2.resourceserver.authorization-server.jwk-set-uri",
-                AUTH_BASE_URL + "/.well-known/jwks.json"));
+                AUTH_BASE_URL + "/.well-known/jwks.json",
+                // This suite is about what becomes of an upload, and the publishing half is
+                // DocSiteExampleIT's. Switching the three triggers off keeps a site generation from starting
+                // behind every test here, and keeps the upstream stub out of a suite that has nothing to say
+                // about the architecture model.
+                "jeap.doc.sites." + SITE + ".publish-on-upload", "false",
+                "jeap.doc.archrepo.import.on-startup", "false",
+                "jeap.doc.archrepo.import.cron", "",
+                "jeap.doc.build.reconcile-cron", "-"));
     }
 
     @Test

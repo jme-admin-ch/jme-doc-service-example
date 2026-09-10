@@ -1,5 +1,5 @@
 # Configuration for a doc service running on the developer machine, against the containers of
-# docker/docker-compose.yml.
+# docker/docker-compose.yml and the upstream stub of this example.
 server:
   port: 8080
 
@@ -8,6 +8,20 @@ spring:
     url: jdbc:postgresql://localhost:5432/jme-doc-service-db
     username: postgres
     password: secret
+  security:
+    oauth2:
+      client:
+        # The token the architecture model is read with. It carries 'jme_@architecture-model_#read' and is
+        # issued for the audience of the upstream rather than of this service: the token is presented to the
+        # upstream, not to the service that fetched it.
+        registration:
+          archrepo-dev:
+            client-id: jme-doc-archrepo-reader
+            client-secret: secret
+            authorization-grant-type: client_credentials
+        provider:
+          archrepo-dev:
+            token-uri: http://localhost:8081/jme-doc-auth-scs/oauth2/token
 
 jeap:
   doc:
@@ -16,6 +30,18 @@ jeap:
       # only: the path below it is the context path of this service plus the site, and a URL carrying a path is
       # refused while the service starts.
       url: http://localhost:8080
+    archrepo:
+      environments:
+        # Where the architecture model of the environment 'dev' is read from: the upstream stub of this
+        # example, see the jme-doc-upstream-stub module. Only 'dev' has one - the other three environments of
+        # the site carry no model, which is a legitimate configuration and is what keeps this example small.
+        #
+        # Wherever this instance is deployed for real, this is the internal URL of the architecture repository
+        # of that stage, and the client registration is issued by the authorization server of that stage,
+        # which is not the doc service's own.
+        dev:
+          url: http://localhost:8082/jme-doc-upstream-stub
+          client-registration: archrepo-dev
   security:
     oauth2:
       resourceserver:

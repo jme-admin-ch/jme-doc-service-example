@@ -9,7 +9,7 @@
         <version>4.0.1-SNAPSHOT</version>
     </parent>
 
-    <artifactId>jme-doc-auth-scs</artifactId>
+    <artifactId>jme-doc-upstream-stub</artifactId>
     <name>${project.artifactId}</name>
     <packaging>jar</packaging>
 
@@ -18,10 +18,17 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc</artifactId>
         </dependency>
+        <!-- The readiness probe: the integration test waits for it before it points the doc service here. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!-- The stub authorizes exactly as the architecture repository does - a semantic role out of a token
+             the OAuth mock server issued - so that the client registration of the doc service is really
+             exercised and not only its URL. -->
         <dependency>
             <groupId>ch.admin.bit.jeap</groupId>
-            <artifactId>jeap-oauth-mock-server</artifactId>
-            <version>${jeap-oauth-mock-server.version}</version>
+            <artifactId>jeap-spring-boot-security-starter</artifactId>
         </dependency>
     </dependencies>
 
@@ -31,7 +38,7 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
-                    <mainClass>ch.admin.bit.jeap.oauth.mock.server.ServerApplication</mainClass>
+                    <mainClass>ch.admin.bit.jeap.jme.doc.stub.UpstreamStubApplication</mainClass>
                 </configuration>
                 <executions>
                     <execution>

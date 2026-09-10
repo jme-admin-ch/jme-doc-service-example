@@ -1,0 +1,11 @@
+# Configuration for the stub running on the developer machine, beside the OAuth mock server of this example.
+server:
+  port: 8082
+
+jeap:
+  security:
+    oauth2:
+      resourceserver:
+        authorization-server:
+          issuer: http://localhost:8081/jme-doc-auth-scs
+          jwk-set-uri: http://localhost:8081/jme-doc-auth-scs/.well-known/jwks.json

@@ -15,6 +15,7 @@ failing fifteen minutes into the first build, deep inside a bundler, with a mess
 | **JDK 25**       | The example builds and runs on Java 25 |
 | **Docker**       | For the PostgreSQL database and the S3-compatible object storage, see [`docker/docker-compose.yml`](../docker/docker-compose.yml) |
 | **Node 24, with npm** | The runtime the site generator runs on. **24 is a floor, not a preference**: the site template declares `engines: node >= 24`, and the doc service compares the version it gets while it starts |
+| **Google Chrome** | For the integration test only. The published documentation is driven in a real browser, because a diagram and the search exist only there - the browser comes from the machine and nothing is downloaded |
 
 Anything that puts a Node 24 on the machine will do - `nvm`, `fnm`, `asdf`, `volta` or the distribution's own
 package:
@@ -54,6 +55,21 @@ An instance that ships a container does none of this: it installs the dependenci
 [the site image](https://github.com/jeap-admin-ch/jeap-doc-service/blob/main/docs/site-image.md) of the doc
 service documents. This example runs on a developer machine, so it installs them into `target/` and points
 `jeap.doc.build.node-modules-directory` there.
+
+## Where the architecture model comes from
+
+The doc service generates its documentation out of an architecture model, and this example has no architecture
+repository. It has [`jme-doc-upstream-stub`](../jme-doc-upstream-stub) instead: a service of the example that
+answers the `/docs-api` of one over a fixed landscape of two systems, and demands the same semantic role the
+real thing does. Start it beside the other two:
+
+```shell
+./mvnw spring-boot:run -pl jme-doc-upstream-stub -Dspring-boot.run.profiles=local
+```
+
+The doc service reads it as the environment `dev` - see `jeap.doc.archrepo.environments` in
+[`application-local.yml`](../jme-doc-service/src/main/resources/application-local.yml). Nothing is imported on
+its own schedule while developing: ask for it, and the import asks for every part of the site in turn.
 
 ## Telling the service where Node is
 
@@ -117,6 +133,7 @@ naming the property. The order below is the order to read them in.
 | The service says | What it means |
 | ---------------- | ------------- |
 | *The dependencies of the site template are not at …* | `./mvnw install` has not run, or ran with `-DskipSiteInstall=true` on a clean `target/`. Run it without the flag |
+| *Cannot find package 'pagefind'* in a build's log | `jeap.doc.build.node-modules-directory` is a relative path. The search indexer symlinks that directory into a workspace of its own, so a relative path is resolved against the workspace and the link dangles. The instance uses `${user.dir}/target/site-install/node_modules` for that reason. The site is published all the same, without a search index |
 | *… were installed from a different `package-lock.json` than the one this doc service carries* | `jeap-doc-service.version` moved and the dependencies did not. Run `./mvnw install` again, without `-DskipSiteInstall=true` |
 | *Node … or newer is needed* | The Node the service found is too old. `node --version`, then `nvm use 24` - and remember the service looks it up on **its** `PATH`, not yours, so check `jeap.doc.build.node-command` |
 | *Cannot run program "node"* | There is no Node where the service looked. Same property |

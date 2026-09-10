@@ -33,6 +33,17 @@ oauth-mock-data:
       userroles: [ "jme_@docs_#read" ]
       audience: [ "jme-doc-service" ]
 
+    # The doc service reading the architecture model of the stubbed upstream. The role carries no tenant
+    # part - an architecture model is nobody's system in particular - and it is issued for the audience of
+    # the stub rather than of the doc service, because the token is presented to the upstream and not to the
+    # service that fetched it. On a real stage this client lives on the authorization server of the
+    # architecture repository's stage, which is not the doc service's own.
+    - client-id: "jme-doc-archrepo-reader"
+      client-secret: "{noop}secret"
+      context: "SYS"
+      userroles: [ "jme_@architecture-model_#read" ]
+      audience: [ "jme-doc-upstream-stub" ]
+
     # Whoever operates the instance: they may ask for a site to be published and read what the documentation
     # generator has been doing. These two roles carry no tenant part, unlike the upload roles above: a build
     # regenerates the documentation of every system on the site, not that of one system.

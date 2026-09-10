@@ -12,13 +12,14 @@ with the database and the object storage, and an integration test that uploads a
 
 ## The modules
 
-| Module             | What it is                                                                                                                                     |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jme-doc-service`  | The doc service instance: it depends on `jeap-doc-service-instance` and adds its configuration                                                 |
-| `jme-doc-auth-scs` | An instance of the [jEAP OAuth mock server](https://github.com/jeap-admin-ch/jeap-oauth-mock-server), issuing the tokens the doc pipelines use |
-| `jme-doc-test`     | The integration test: it starts both services, uploads a documentation set and looks into the bucket it landed in                              |
-| `docker/`          | The database and the object storage the doc service needs, with its bucket and the lifecycle rule expiring the uploaded bundles |
-| `docs/`            | [Running the example on a developer machine](docs/local-development.md) - the prerequisites in full, and what to do when the service does not start |
+| Module                  | What it is                                                                                                                                          |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jme-doc-service`       | The doc service instance: it depends on `jeap-doc-service-instance` and adds its configuration                                                      |
+| `jme-doc-auth-scs`      | An instance of the [jEAP OAuth mock server](https://github.com/jeap-admin-ch/jeap-oauth-mock-server), issuing the tokens the doc pipelines use      |
+| `jme-doc-upstream-stub` | The upstream the doc service reads: a small service answering the `/docs-api` of an architecture repository over a fixed landscape of two systems   |
+| `jme-doc-test`          | The integration test: it starts the three services, imports the model, publishes the site and reads it - over the API and in a browser              |
+| `docker/`               | The database and the object storage the doc service needs, with its bucket and the lifecycle rule expiring the uploaded bundles                     |
+| `docs/`                 | [Running the example on a developer machine](docs/local-development.md) - the prerequisites in full, and what to do when the service does not start |
 
 ## Roles: a system may only upload its own documentation
 
@@ -34,6 +35,7 @@ documentation is a separate resource, `docs`. The clients are configured in
 | `other-system-doc-pipeline` | `secret` | `jme_%othersystem_@uploads_#write`      | upload the documentation of another system              |
 | `jme-doc-reader`            | `secret` | `jme_@docs_#read`                       | read the doc service API                                |
 | `jme-doc-operator`          | `secret` | `jme_@sites_#admin`, `jme_@sites_#read` | ask for a site to be published, and read what was built |
+| `jme-doc-archrepo-reader`   | `secret` | `jme_@architecture-model_#read`         | read the architecture model from the upstream           |
 
 **The `sites` roles carry no tenant part**, and that is the difference that matters: an upload role is granted
 per system so that a pipeline can only change its own documentation, while a build regenerates the whole site
@@ -47,6 +49,7 @@ whoever operates the instance rather than to the pipelines that fill it.
 3. **Node 24 and npm**: the doc service generates the documentation site by running the site generator as a
    child process, so this example needs a Node runtime - and it **refuses to start** without one it can run and
    without the site template's dependencies installed
+4. **Google Chrome**, for the integration test only: the published documentation is driven in a real browser
 
 The third one is the one that is new and the one that bites, so it has a page of its own:
 **[Running the example on a developer machine](docs/local-development.md)** - which Node, where the service looks
@@ -80,13 +83,15 @@ docker compose -f docker/docker-compose.yml up -d
 ### Start the services
 
 ```shell
-./mvnw spring-boot:run -pl jme-doc-auth-scs -Dspring-boot.run.profiles=local
-./mvnw spring-boot:run -pl jme-doc-service  -Dspring-boot.run.profiles=local
+./mvnw spring-boot:run -pl jme-doc-auth-scs      -Dspring-boot.run.profiles=local
+./mvnw spring-boot:run -pl jme-doc-upstream-stub -Dspring-boot.run.profiles=local
+./mvnw spring-boot:run -pl jme-doc-service       -Dspring-boot.run.profiles=local
 ```
 
 - the doc service listens on http://localhost:8080/jme-doc-service, with its API documentation at
   http://localhost:8080/jme-doc-service/swagger-ui.html
 - the OAuth mock server listens on http://localhost:8081/jme-doc-auth-scs
+- the upstream stub listens on http://localhost:8082/jme-doc-upstream-stub
 
 ### Upload a documentation set
 
@@ -168,6 +173,41 @@ intended.
 See the [API documentation of the doc service](https://github.com/jeap-admin-ch/jeap-doc-service/blob/main/docs/api.md)
 for all parameters.
 
+### Where the documentation on the site comes from
+
+Two sources, and only one of them is an upload.
+
+**The architecture model** is imported from an architecture repository into the doc service's own database,
+and a build reads that copy - so a repository that is being deployed cannot fail a documentation build. Out of
+the model the generator writes an arc42 tree per system and per component: the context views, the building
+block views, the messages, the REST APIs.
+
+This example has no architecture repository, and running one beside it would mean its database, its importers
+and its source data for the sake of two systems. So it has
+[`jme-doc-upstream-stub`](jme-doc-upstream-stub), a small service answering the `/docs-api` of one over a
+landscape of **two systems of two components each**, written down in
+[`landscape.yml`](jme-doc-upstream-stub/src/main/resources/landscape.yml). Adding a system to what this example
+documents is editing that file. The stub demands the same semantic role the real architecture repository does,
+so what the example exercises is the whole client registration and not only a URL.
+
+Ask for the model to be imported, with the operator client:
+
+```shell
+curl -i -X POST http://localhost:8080/jme-doc-service/api/architecture/environments/dev/imports \
+  -H "Authorization: Bearer $ADMIN"
+
+curl -s http://localhost:8080/jme-doc-service/api/architecture/environments -H "Authorization: Bearer $ADMIN"
+```
+
+**The import is also the trigger**: having stored a landscape that is not the one already there, it asks for
+every part of the site, so the documentation appears seconds later. Only the environment `dev` reads a model
+here, so it is the `dev` tree that has one:
+http://localhost:8080/jme-doc-service/dev/systems/jme/.
+
+**The uploaded documentation** is the other source - the custom chapters a repository writes next to its code.
+It is stored, and it is **not on the site yet**: taking an uploaded documentation set over into the generated
+site is not written yet in the doc service. What an upload does today is what the next sections show.
+
 ### Ask whether a tree would be accepted, before packing it
 
 Where each file sits in the folder is what decides where it is published, so a misfiled tree is a build that
@@ -216,10 +256,10 @@ what is *in* the files is the doc workflow's own half of the validation. The rul
 
 **A site is published as one build per part.** A part is a set of whole URL subtrees, and the partition cuts a
 site into one part per system plus the *shell* - the part carrying the site's own pages and everything no system
-claims. Which systems a site has is what an architecture repository tells it, and this example configures none,
-so its site is the shell and nothing else. That is a legitimate configuration and the smallest one there is; an
-instance with a landscape behind it has one part per system beside the shell, built several at a time and only
-where the content moved.
+claims. Which systems a site has is what an architecture repository tells it, so this example has three parts:
+the shell and the two systems of the stubbed landscape. They are built **one after another** here -
+`jeap.doc.build.max-concurrent-parts` is 1, because every concurrent build holds a site generator run in the
+same container and that is a memory decision rather than a parallelism one.
 
 An upload asks for a build of the part that carries its system, and an instance picks that request up within
 `jeap.doc.build.poll-interval` - 30 seconds by default. On top of that a site no architecture import feeds is
@@ -330,9 +370,8 @@ does its own housekeeping. See
 ./mvnw verify
 ```
 
-Both suites start the database and the object storage with docker compose, and start the OAuth mock server and
-the doc service on free ports. They take about two minutes together, most of it the two runs of the site
-generator.
+Both suites start the database and the object storage with docker compose and start the services of the example
+on free ports. They take a few minutes together, most of it the runs of the site generator.
 
 [`DocServiceExampleIT`](jme-doc-test/src/test/java/ch/admin/bit/jeap/jme/doc/DocServiceExampleIT.java) uploads a
 documentation set with a token of the mock server. It covers the stored upload (`201`, `PENDING`), the repetition
@@ -346,18 +385,26 @@ upload: a tree that follows arc42 (`200`, with the chapters the template allows)
 another system (`403`) and the one carrying a parameter a structure does not depend on (`400`).
 
 [`DocSiteExampleIT`](jme-doc-test/src/test/java/ch/admin/bit/jeap/jme/doc/DocSiteExampleIT.java) is the other
-half: it generates the site and reads what the generator did. **It really runs the site generator**, so it is the
-suite that fails when Node is missing or too old - see
-[Running the example on a developer machine](docs/local-development.md). It covers an operator asking for the
-whole site (`202`, `partsRequested`, `picksUpWithinSeconds`) and it being published, the parts the site is
-published as - here the shell alone - with what is published for each and how old it is, the site then being
-served to anyone without a token with the title this instance configures, each environment under its own path,
-the form of a route without its trailing slash (`301`), the search page, the site's own not-found page (`404`),
-the build history of the site and of one part with what the run produced and how much of it was Docusaurus, the generated files
-lying in the object storage under the prefix of their build and tagged, asking for one part on its own, a part
-the site does not have (`404`), and the role matrix in both directions: a pipeline may not publish the site or
-read what it published and an operator may not upload documentation (`403`), no token is `401`, and a site this
-instance does not configure is `404`.
+half: it drives the whole chain a landscape travels - an operator asks for the architecture model, the import
+stores it and asks for every part, the parts are generated and published, and the pages are then read. **It
+really runs the site generator and a real browser**, so it is the suite that fails when Node or Chrome is
+missing - see [Running the example on a developer machine](docs/local-development.md).
+
+Over the API it covers where the model is read from, the import (`202`, not durable, polled until it has
+succeeded) and the three parts it produces, what is published for each part and how old that is, the site
+being served to anyone without a token with the title this instance configures, a page generated out of the
+model, each environment under its own path, the form of a route without its trailing slash (`301`), the site's
+own not-found page (`404`), the build history of the site and of one part, the generated files lying in the
+object storage under the prefix of their build and tagged, an upload asking for a build of the part that
+carries its system, asking for one part and for the whole site, a part the site does not have (`404`), and the
+role matrix in both directions: a pipeline may neither publish the site nor import the model nor read what was
+built, an operator may not upload documentation (`403`), no token is `401`, and a site this instance does not
+configure is `404`.
+
+In the browser it covers the three things no HTTP assertion can see: that a system of the model is reachable
+from the index of a **different** part's build, that a component context view is really **rendered as a
+picture** - the generator emits no image at all, only a fenced source block a plugin turns into one - and that
+the **search** finds a generated page, which is an index downloaded and queried in the browser.
 
 ## Configuration of the instance
 
