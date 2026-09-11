@@ -46,6 +46,10 @@ import static org.hamcrest.Matchers.notNullValue;
  * whether the doc service would accept them, so a misfiled tree costs a request rather than a build. Nothing is
  * stored by that call and no file's bytes are sent - what is in the files is the doc workflow's own half of the
  * validation.
+ * <p>
+ * That endpoint is advisory, and the upload is not: a set that would not be published is refused by the upload
+ * itself, with the same findings, so a pipeline that skipped the check cannot put a page where nothing serves
+ * it.
  */
 class DocServiceExampleIT extends BootServiceSpringIntegrationTestBase {
 
@@ -221,6 +225,42 @@ class DocServiceExampleIT extends BootServiceSpringIntegrationTestBase {
                 .then()
                 .statusCode(400)
                 .body("code", equalTo("UNKNOWN_PARAMETER"));
+    }
+
+    /**
+     * A set that would not be published is refused by the upload itself, and not only by the advisory endpoint
+     * below - a pipeline may skip that endpoint, and a misfiled page must not be able to reach a site. The
+     * answer carries the same findings the validation endpoint answers with, so a workflow prints them without
+     * knowing which of the two refused the set.
+     * <p>
+     * <b>Nothing is stored</b>: the list of paths is read off the archive before the bundle is put anywhere.
+     * The upload is left recorded as failed, which is a state the same upload id can be retried under once the
+     * tree is fixed.
+     */
+    @Test
+    void anUploadWhoseSetWouldNotBePublishedIsRefusedWithItsFindings() {
+        UUID uploadId = UUID.randomUUID();
+        String accessToken = uploadToken();
+
+        upload(uploadId, accessToken, documentationSetParameters(), DocumentationSets.misfiledBundle())
+                .then()
+                .statusCode(422)
+                .contentType("application/problem+json")
+                .body("code", equalTo("STRUCTURE_INVALID"))
+                .body("template", equalTo("arc42"))
+                .body("pathsChecked", equalTo(DocumentationSets.misfiledPaths().size()))
+                .body("findings.code", hasItem("UNKNOWN_CHAPTER"))
+                .body("findings.find { it.code == 'UNKNOWN_CHAPTER' }.path",
+                      equalTo(DocumentationSets.MISFILED_PAGE));
+
+        given().baseUri(DOC_BASE_URL)
+                .auth().oauth2(accessToken)
+                .queryParam("system", SYSTEM)
+                .when()
+                .get(uploadPath(uploadId))
+                .then()
+                .statusCode(200)
+                .body("state", equalTo("FAILED"));
     }
 
     /**
@@ -462,11 +502,16 @@ class DocServiceExampleIT extends BootServiceSpringIntegrationTestBase {
     }
 
     private static Response upload(UUID uploadId, String accessToken, Map<String, String> parameters) {
+        return upload(uploadId, accessToken, parameters, documentationSet());
+    }
+
+    private static Response upload(UUID uploadId, String accessToken, Map<String, String> parameters,
+                                   byte[] bundle) {
         return given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(accessToken)
                 .contentType("application/zip")
                 .queryParams(parameters)
-                .body(documentationSet())
+                .body(bundle)
                 .when()
                 .put(uploadPath(uploadId));
     }

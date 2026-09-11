@@ -76,6 +76,11 @@ import static org.hamcrest.Matchers.nullValue;
  * so this site has three parts - and they are built one after another, because
  * {@code jeap.doc.build.max-concurrent-parts} is 1 in this instance.
  * <p>
+ * <b>Both halves of the hybrid model end up on it</b>: what the generator writes out of the model, and what a
+ * team uploads next to its code. The upload is driven here rather than in the API suite because this is where a
+ * build can be waited for - the example publishes the stubbed landscape alone, so one is quick - and seeing the
+ * page served is the only thing that says an upload was published rather than only stored.
+ * <p>
  * <b>Administering a site is not a system's own business.</b> The upload roles carry the system in their tenant
  * part so that a pipeline can only change its own documentation, while a build regenerates a part with the
  * documentation of every repository in it - so it is granted on a resource of its own that no pipeline holds.
@@ -167,6 +172,12 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     private static final String COMPONENT_REACTIONS =
             "/systems/jme/system-architecture/building-block-view/components/" + REACTING_COMPONENT
             + "/component-architecture/runtime-view/component-reactions/";
+
+    /**
+     * The URL segment of the chapter the uploaded page is filed in - {@code 1-intro} without its number. The
+     * number is part of arc42 and belongs in the folder, not in a link.
+     */
+    private static final String UPLOADED_CHAPTER_SEGMENT = "intro";
 
     /** What the site of this example calls itself - configured in the instance, and read back off the page. */
     private static final String SITE_TITLE = "JME Documentation";
@@ -674,36 +685,102 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     }
 
     /**
-     * The other half of what an upload does. The pipeline asks for nothing but the upload; the part that
-     * carries its system is asked for because the site is configured to be published on upload - which is the
-     * default, and is what makes documentation appear without anybody operating anything.
+     * The other half of what an upload does, and the half a reader sees. The pipeline asks for nothing but the
+     * upload; the part that carries its system is asked for because the site is configured to be published on
+     * upload - which is the default, and is what makes documentation appear without anybody operating
+     * anything.
      * <p>
-     * The build that follows is <b>skipped</b>, and that is the point of the assertion: taking an uploaded
-     * documentation set over into the generated site is not written yet, so the content of the part has not
-     * moved, its digest is what is already published, and the site generator is never started. The row says so
-     * rather than the trigger being silently dropped.
+     * <b>Two sets, and the second one is the case a model cannot cover.</b> One documents a component the
+     * stubbed landscape holds, so its uploaded chapter stands beside the chapters the generator writes for it.
+     * The other documents a component of the same system that <i>no</i> importer has ever seen -
+     * {@code jme-doc-upstream-stub} is a module of this example and is deployed nowhere - and it is published
+     * all the same, out of the upload alone. Both are uploaded before anything is waited for, because they
+     * belong to one part and the requests collapse into one build.
      */
     @Test
     @Order(17)
-    void anUploadAsksForABuildOfThePartThatCarriesItsSystem() {
+    void anUploadIsPublishedIntoThePartThatCarriesItsSystem() {
         long before = newestBuildId();
 
-        given().baseUri(DOC_BASE_URL)
-                .auth().oauth2(uploadToken())
-                .contentType("application/zip")
-                .queryParams(DocumentationSets.parameters())
-                .body(DocumentationSets.bundle())
-                .when()
-                .put(UPLOAD_PATH + UUID.randomUUID())
-                .then()
-                .statusCode(201);
+        upload(DocumentationSets.parameters());
+        upload(DocumentationSets.parametersFor(DocumentationSets.COMPONENT_OUTSIDE_THE_MODEL));
 
         JsonPath build = await().atMost(BUILD_TIMEOUT)
                 .pollInterval(Duration.ofSeconds(1))
                 .until(() -> buildAfter(before, "UPLOAD"), Objects::nonNull);
 
         assertThat(build.getString("part")).isEqualTo(JME_PART);
-        assertThat(build.getString("state")).isEqualTo("SKIPPED");
+        assertThat(build.getString("state")).isEqualTo("SUCCEEDED");
+    }
+
+    /**
+     * The uploaded page itself, read where a reader reaches it: below the component, in the arc42 chapter the
+     * folder of the ZIP named, under the file's own name. <b>The number of the chapter is in the folder and
+     * not in the URL</b> - the numbers are arc42's, and a link should survive a methodology that numbers its
+     * chapters differently.
+     * <p>
+     * What is asserted is the body and the provenance. The body, because nothing is appended to it and nothing
+     * in it is rewritten - a team's Markdown is not the service's to edit. The provenance, because it is the
+     * one thing the service adds and the only way an uploaded page can carry any: it is rendered from the
+     * front matter the service generated out of the upload's parameters, and it is what tells a reader that
+     * this page was written by a team rather than generated.
+     * <p>
+     * <b>Every environment tree gets it.</b> An upload names no environment - what a team writes is about the
+     * thing rather than about a stage - so the page is read under the main environment at the root as well as
+     * under one of the others.
+     */
+    @Test
+    @Order(18)
+    void theUploadedPageIsServedInEveryEnvironmentOfTheSite() {
+        // The requests of the two uploads collapse into one build, and a second one starting in between would
+        // publish the part again - so the page is waited for rather than assumed to be there already.
+        await().atMost(BUILD_TIMEOUT)
+                .pollInterval(Duration.ofSeconds(2))
+                .until(() -> given().baseUri(DOC_BASE_URL)
+                        .when()
+                        .get("/" + ENVIRONMENT + uploadedPageOf(DocumentationSets.COMPONENT))
+                        .getStatusCode() == 200);
+
+        for (String environment : ENVIRONMENTS) {
+            String tree = environment.equals(MAIN_ENVIRONMENT) ? "" : "/" + environment;
+
+            given().baseUri(DOC_BASE_URL)
+                    .when()
+                    .get(tree + uploadedPageOf(DocumentationSets.COMPONENT))
+                    .then()
+                    .statusCode(200)
+                    .body(containsString(DocumentationSets.PAGE_TITLE))
+                    .body(containsString(DocumentationSets.PAGE_TEXT))
+                    // The provenance: the label the site template renders for a page whose doc_status is
+                    // 'custom' - against the "Generated page" of everything the model produced - and the
+                    // commit the upload named, which is where the page is to be edited.
+                    .body(containsString("Written by the team"))
+                    .body(containsString(DocumentationSets.SOURCE_REVISION));
+        }
+    }
+
+    /**
+     * And the component the architecture model does not hold. A team can document something before anything is
+     * deployed, and the service publishes it out of the upload alone: the component gets its tree in the
+     * building block view of its system, the chapter the team wrote is in it, and chapter 1 additionally
+     * carries a generated page saying that the model does not hold it.
+     */
+    @Test
+    @Order(19)
+    void aComponentTheArchitectureModelDoesNotHoldIsPublishedFromItsUploadAlone() {
+        given().baseUri(DOC_BASE_URL)
+                .when()
+                .get("/" + ENVIRONMENT + uploadedPageOf(DocumentationSets.COMPONENT_OUTSIDE_THE_MODEL))
+                .then()
+                .statusCode(200)
+                .body(containsString(DocumentationSets.PAGE_TEXT))
+                .body(containsString("Written by the team"));
+
+        given().baseUri(DOC_BASE_URL)
+                .when()
+                .get("/" + ENVIRONMENT + componentTreeOf(DocumentationSets.COMPONENT_OUTSIDE_THE_MODEL))
+                .then()
+                .statusCode(200);
     }
 
     /**
@@ -713,7 +790,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * is what is wanted after a change outside the content.
      */
     @Test
-    @Order(18)
+    @Order(20)
     void askingForOnePartPublishesItWhetherItsContentMovedOrNot() {
         long before = newestBuildId();
 
@@ -739,7 +816,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * under it.
      */
     @Test
-    @Order(19)
+    @Order(21)
     void askingForAPartTheSiteDoesNotHaveIsNotFound() {
         given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(operatorToken())
@@ -756,7 +833,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * neither is the role that reads the upload API.
      */
     @Test
-    @Order(20)
+    @Order(22)
     void administeringWithAnythingButTheAdminRoleIsRejected() {
         String readerToken = fetchAccessToken(AUTH_BASE_URL, "jme-doc-reader", "secret");
 
@@ -771,7 +848,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * documentation of a system. The two resources are separate in both directions.
      */
     @Test
-    @Order(21)
+    @Order(23)
     void uploadingWithTheOperatorRoleIsRejected() {
         given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(operatorToken())
@@ -785,7 +862,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     }
 
     @Test
-    @Order(22)
+    @Order(24)
     void readingWhatTheGeneratorDidWithAnUploadRoleIsRejected() {
         for (String path : List.of(SITE_PATH, BUILDS_PATH, PARTS_PATH, SHELL_BUILDS_PATH, IMPORT_STATE_PATH)) {
             given().baseUri(DOC_BASE_URL)
@@ -798,7 +875,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     }
 
     @Test
-    @Order(23)
+    @Order(25)
     void administeringASiteWithoutATokenIsRejected() {
         for (String path : List.of(SITE_PATH, BUILDS_PATH, PARTS_PATH, SHELL_BUILDS_PATH, IMPORT_STATE_PATH)) {
             given().baseUri(DOC_BASE_URL).when().get(path).then().statusCode(401);
@@ -812,7 +889,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * something that might appear later - and it is refused rather than answered with an empty history.
      */
     @Test
-    @Order(24)
+    @Order(26)
     void askingForABuildOfASiteThisInstanceDoesNotConfigureIsNotFound() {
         given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(operatorToken())
@@ -832,7 +909,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * exactly what is already published, and the suite has read everything it came for.
      */
     @Test
-    @Order(25)
+    @Order(27)
     void askingForTheWholeSiteAsksForEveryPartOfIt() {
         given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(operatorToken())
@@ -843,6 +920,31 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
                 .body("site", equalTo(SITE))
                 .body("partsRequested", equalTo(3))
                 .body("picksUpWithinSeconds", equalTo(POLL_INTERVAL_SECONDS));
+    }
+
+    /** Uploads the documentation set of this example under a fresh upload id. */
+    private void upload(Map<String, String> parameters) {
+        given().baseUri(DOC_BASE_URL)
+                .auth().oauth2(uploadToken())
+                .contentType("application/zip")
+                .queryParams(parameters)
+                .body(DocumentationSets.bundle())
+                .when()
+                .put(UPLOAD_PATH + UUID.randomUUID())
+                .then()
+                .statusCode(201);
+    }
+
+    /** Where one component of the system {@code jme} is documented, below the tree of an environment. */
+    private static String componentTreeOf(String component) {
+        return "/systems/" + DocumentationSets.SYSTEM + "/system-architecture/building-block-view/components/"
+               + component + "/";
+    }
+
+    /** And where the page uploaded for it is served: its chapter, then the name the file had in the ZIP. */
+    private static String uploadedPageOf(String component) {
+        return componentTreeOf(component) + "component-architecture/" + UPLOADED_CHAPTER_SEGMENT + "/"
+               + DocumentationSets.PAGE_NAME + "/";
     }
 
     /**

@@ -153,8 +153,9 @@ curl -i -X PUT "http://localhost:8080/jme-doc-service/api/uploads/docs/$UPLOAD_I
   --data-binary @docs.zip
 ```
 
-The bundle is stored and the upload is answered with `201` and the state it ended in - `PENDING` means it is
-waiting for the documentation generator:
+The bundle is stored, the set becomes the current documentation of that component straight away, and the upload
+is answered with `201` and the state it ended in - `PENDING` means the set is current and waiting for the
+**publication**, which is the build the upload asked for:
 
 ```json
 {
@@ -263,9 +264,22 @@ imported model and leaves out what the model does not have, so a reaction naming
 nothing. It is configured under `jeap.doc.reactions` and is **off by default** in the doc service, because a
 platform may run no observer at all.
 
-**The uploaded documentation** is the third source - the custom chapters a repository writes next to its code.
-It is stored, and it is **not on the site yet**: taking an uploaded documentation set over into the generated
-site is not written yet in the doc service. What an upload does today is what the next sections show.
+**The uploaded documentation** is the third source - the custom chapters a repository writes next to its code -
+and it is **published beside the generated pages**. The folder inside the ZIP is the chapter and nothing else
+decides: `1-intro/why-we-built-this.md` of the component `jme-doc-service` is served at
+
+```text
+…/systems/jme/system-architecture/building-block-view/components/jme-doc-service/component-architecture/intro/why-we-built-this/
+```
+
+The number of the chapter is in the folder and not in the URL - the numbers belong to arc42, and a link should
+survive a methodology that numbers its chapters differently. The page body is written through unchanged;
+what the doc service adds is the provenance under it, out of the parameters of the upload.
+
+**A subject the architecture model does not hold is published all the same**, from the upload alone - a team can
+document a component before anything of it is deployed, and a library is always in that position. Chapter 1 of
+such a subject additionally carries a generated page saying that the model does not hold it and what would make
+it appear.
 
 ### Ask whether a tree would be accepted, before packing it
 
@@ -310,6 +324,12 @@ carrying the report as extension members:
 Nothing is uploaded, stored or read by this: the tree arrives as a list of paths and no file's bytes are sent -
 what is *in* the files is the doc workflow's own half of the validation. The rules it applies are in
 [what an upload is validated against](https://github.com/jeap-admin-ch/jeap-doc-service/blob/main/docs/upload-validation.md).
+
+**This endpoint saves a round trip; it is not what keeps a misfiled page off the site.** The upload applies the
+same rules to the same paths and refuses a set that breaks one with `422` and the same findings, so a pipeline
+that skipped the check gets the same answer one step later. Nothing is stored for such an upload - the list of
+paths is read off the archive before the bundle is put anywhere - and the upload is left in a state the same
+upload id can be retried under once the tree is fixed.
 
 ### Publish the site, and read what the generator did
 
@@ -403,10 +423,17 @@ Nothing in the object storage is kept indefinitely, and what removes it is not t
 Each object the doc service writes carries a `jeap-doc-content` tag saying what it *is*, and
 [`docker/docker-compose.yml`](docker/docker-compose.yml) creates the lifecycle rule with the bucket:
 
-| Tag      | What removes it                                                                                                                                                                                                                 | After   |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| `upload` | The doc service forgets the upload in its database after `jeap.doc.upload.housekeeping.retention` - 14 days - and the lifecycle rule expires its bundle a day later, so an upload never points at a bundle that is already gone | 15 days |
-| `site`   | The doc service itself, after every successful build of that part, down to `jeap.doc.build.retention` publications. **There is no lifecycle rule over the sites, and there may not be one at any value** - see below            | -       |
+| Tag       | What removes it                                                                                                                                                                                                                | After   |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- |
+| `upload`  | The doc service forgets the upload in its database after `jeap.doc.upload.housekeeping.retention` - 14 days - and the lifecycle rule expires its bundle afterwards, so an upload never points at a bundle that is already gone | 21 days |
+| `current` | The doc service, when a set is replaced or removed, plus a nightly sweep of the objects no set references. **There is no lifecycle rule over the current documentation, and there may not be one at any value** - see below    | -       |
+| `site`    | The doc service itself, after every successful build of that part, down to `jeap.doc.build.retention` publications. **There is no lifecycle rule over the sites, and there may not be one at any value** - see below           | -       |
+
+**An age rule over the current documentation would delete the documentation of the teams who got it right.** The
+bundle of an upload is a staging copy that expires; what it became is the only copy there is, and the current
+version of a set can be arbitrarily old - a component that publishes once and stays stable for a year is the
+normal case. Age cannot tell an orphan from a well-kept page. What *can* be answered is whether anything still
+references an object, and that is what the doc service's own nightly sweep asks.
 
 **An age rule over the generated sites would take the site offline.** A part whose content hashes to what is
 already published is not generated and uploads nothing, so the objects a part is serving keep the date of the
@@ -437,11 +464,12 @@ documentation set with a token of the mock server. It covers the stored upload (
 under the same upload id (`200`, the same `id`) and a different documentation set under a used one (`409`), the
 upload for another system and the one with the read role only (`403`), the upload without a token (`401`), an
 upload that does not describe a documentation set and one with a mistyped parameter (`400`), an upload that
-announces no size (`411`), reading the state of an upload back, and the bundle lying in the object storage under
-the id of the upload - tagged, so the lifecycle rule of the bucket expires it. It also drives the step before the
-upload: a tree that follows arc42 (`200`, with the chapters the template allows), one that does not (`422`,
-`UNKNOWN_CHAPTER`), a name the generator writes into that chapter itself (`RESERVED_NAME`), the validation for
-another system (`403`) and the one carrying a parameter a structure does not depend on (`400`).
+announces no size (`411`), an upload whose set would not be published (`422`, `STRUCTURE_INVALID`, with the
+findings and the upload left `FAILED`), reading the state of an upload back, and the bundle lying in the object
+storage under the id of the upload - tagged, so the lifecycle rule of the bucket expires it. It also drives the
+step before the upload: a tree that follows arc42 (`200`, with the chapters the template allows), one that does
+not (`422`, `UNKNOWN_CHAPTER`), a name the generator writes into that chapter itself (`RESERVED_NAME`), the
+validation for another system (`403`) and the one carrying a parameter a structure does not depend on (`400`).
 
 [`DocSiteExampleIT`](jme-doc-test/src/test/java/ch/admin/bit/jeap/jme/doc/DocSiteExampleIT.java) is the other
 half: it drives the whole chain a landscape travels - an operator asks for the architecture model, the import
@@ -454,11 +482,17 @@ succeeded) and the three parts it produces, what is published for each part and 
 being served to anyone without a token with the title this instance configures, a page generated out of the
 model, each environment under its own path, the form of a route without its trailing slash (`301`), the site's
 own not-found page (`404`), the build history of the site and of one part, the generated files lying in the
-object storage under the prefix of their build and tagged, an upload asking for a build of the part that
-carries its system, asking for one part and for the whole site, a part the site does not have (`404`), and the
-role matrix in both directions: a pipeline may neither publish the site nor import the model nor read what was
-built, an operator may not upload documentation (`403`), no token is `401`, and a site this instance does not
-configure is `404`.
+object storage under the prefix of their build and tagged, asking for one part and for the whole site, a part
+the site does not have (`404`), and the role matrix in both directions: a pipeline may neither publish the site
+nor import the model nor read what was built, an operator may not upload documentation (`403`), no token is
+`401`, and a site this instance does not configure is `404`.
+
+It also covers **the whole way an upload travels**, which is why the publication is verified in this repository
+rather than against a deployed instance: this example publishes the stubbed landscape alone, so a build takes
+seconds and can be waited for. An upload asks for a build of the part that carries its system, that build
+succeeds, and the page is then read at its route - in every environment tree, with its body unchanged and the
+provenance the doc service generated under it. A second set documents a component the stubbed landscape does
+**not** hold, and it is published from the upload alone.
 
 It also covers the **second upstream**: that the three reaction indexes were read and their graphs stored, and
 that the runtime views they are drawn into are served - chapter 6 of a system and of a component, with the

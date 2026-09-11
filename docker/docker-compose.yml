@@ -51,16 +51,24 @@ services:
 
   # The doc service does not start when its bucket is missing, so the bucket is created with the storage - and
   # so is its lifecycle rule, because a rule belongs to the bucket rather than to the service. It selects on
-  # the tag the doc service writes on every object, not on a prefix: jeap.doc.storage.upload-prefix and
-  # .site-prefix are configured per instance while the tag is the same everywhere.
+  # the tag the doc service writes on every object, not on a prefix: jeap.doc.storage.upload-prefix,
+  # .current-prefix and .site-prefix are configured per instance while the tag is the same everywhere.
   #
   #   jeap-doc-content=upload  the bundle of an upload. The doc service removes the upload from its database
   #                            after jeap.doc.upload.housekeeping.retention - 14 days - and the bundle is
-  #                            expired here a day later, so an upload never outlives its bundle.
+  #                            expired here afterwards, so an upload never outlives its bundle.
   #
-  # There is deliberately NO rule over the generated sites, at any value. A site is published as one build per
-  # part, and a build whose content hashes to what is already published uploads nothing - so the objects a
-  # part is serving keep the date of the build that last changed that part, and a part nobody edits is as old
+  # There is deliberately NO rule over the current documentation, at any value. An upload's bundle is a staging
+  # copy; what it became - the objects tagged jeap-doc-content=current - is the only copy there is, and the
+  # current version of a documentation set can be arbitrarily old, because a component that publishes once and
+  # stays stable for a year is the normal case. An age rule over it would delete exactly the documentation of
+  # the teams who got it right and left it alone. What removes one is the doc service: a set that is replaced
+  # or removed, plus a nightly sweep of the objects that no set references any more - a question about
+  # references and not about age.
+  #
+  # There is deliberately NO rule over the generated sites either, at any value. A site is published as one
+  # build per part, and a build whose content hashes to what is already published uploads nothing - so the
+  # objects a part is serving keep the date of the build that last changed it, and a part nobody edits is as old
   # as the part itself. An age rule would expire exactly the documentation nobody has had to touch, and the
   # next build would find its digest unchanged and heal nothing. What removes a publication a part has
   # superseded is the doc service, after every successful build, down to jeap.doc.build.retention - it is the
@@ -82,7 +90,7 @@ services:
         aws --endpoint-url http://jme-doc-objectstorage:9000 s3api create-bucket --bucket jme-doc-service-documents || true
         aws --endpoint-url http://jme-doc-objectstorage:9000 s3api put-bucket-lifecycle-configuration \
           --bucket jme-doc-service-documents \
-          --lifecycle-configuration '{"Rules":[{"ID":"expire-jeap-doc-uploads","Status":"Enabled","Filter":{"Tag":{"Key":"jeap-doc-content","Value":"upload"}},"Expiration":{"Days":15},"NoncurrentVersionExpiration":{"NoncurrentDays":1}}]}'
+          --lifecycle-configuration '{"Rules":[{"ID":"expire-jeap-doc-uploads","Status":"Enabled","Filter":{"Tag":{"Key":"jeap-doc-content","Value":"upload"}},"Expiration":{"Days":21},"NoncurrentVersionExpiration":{"NoncurrentDays":1}}]}'
     environment:
       AWS_ACCESS_KEY_ID: rustfsadmin
       AWS_SECRET_ACCESS_KEY: rustfsadmin

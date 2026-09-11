@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.3.0] - 2026-09-11
+
+### Added
+
+- **The documentation a team uploads is published, and the integration test reads it off the site.** The whole
+  way is driven end to end: the pipeline uploads a set, the part carrying its system is built, and the page is
+  then read at its route in every environment tree - with its body unchanged and the provenance the doc service
+  generated under it. It is verified here rather than against a deployed instance because this example publishes
+  the stubbed landscape alone, so a build takes seconds and can be waited for.
+- **A component the architecture model does not hold is published from its upload alone**, which is what lets a
+  team document something before anything of it is deployed. The second set the test uploads documents
+  `jme-doc-upstream-stub` - a module of this example that is deployed nowhere, so no importer can see it.
+- **An upload whose set would not be published is refused** with `422` and `STRUCTURE_INVALID`, carrying the
+  same findings the advisory validation endpoint answers with. The structure endpoint now saves a round trip
+  rather than being the only thing that keeps a misfiled page off the site.
+
+### Changed
+
+- The lifecycle rule of the bucket expires an upload's bundle after **21 days** instead of 15, following the
+  retention the doc service documents. And it still selects on `jeap-doc-content=upload` alone: the current
+  documentation carries `jeap-doc-content=current` and **may not be expired by age at any value** - it is the
+  only copy of what a team wrote, and a set that is a year old is a component nobody has had to touch.
+
+### Dependencies
+- **ch.admin.bit.jeap:jeap-doc-service**: 2.1.0 → 2.2.0-feature-JEAP-7413-rebased-SNAPSHOT
+
 ## [4.2.0] - 2026-09-11
 
 ### Added
