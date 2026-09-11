@@ -695,7 +695,8 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * The other documents a component of the same system that <i>no</i> importer has ever seen -
      * {@code jme-doc-upstream-stub} is a module of this example and is deployed nowhere - and it is published
      * all the same, out of the upload alone. Both are uploaded before anything is waited for, because they
-     * belong to one part and the requests collapse into one build.
+     * belong to one part and the requests collapse into one build - when the second arrives before the first
+     * build has started, which is not guaranteed, so each page is waited for on its own.
      */
     @Test
     @Order(17)
@@ -768,6 +769,14 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     @Test
     @Order(19)
     void aComponentTheArchitectureModelDoesNotHoldIsPublishedFromItsUploadAlone() {
+        // Its own wait: when the first build had already started, this upload is published by the next one.
+        await().atMost(BUILD_TIMEOUT)
+                .pollInterval(Duration.ofSeconds(2))
+                .until(() -> given().baseUri(DOC_BASE_URL)
+                        .when()
+                        .get("/" + ENVIRONMENT + uploadedPageOf(DocumentationSets.COMPONENT_OUTSIDE_THE_MODEL))
+                        .getStatusCode() == 200);
+
         given().baseUri(DOC_BASE_URL)
                 .when()
                 .get("/" + ENVIRONMENT + uploadedPageOf(DocumentationSets.COMPONENT_OUTSIDE_THE_MODEL))
