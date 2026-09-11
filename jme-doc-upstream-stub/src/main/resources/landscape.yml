@@ -77,12 +77,38 @@ stub:
           method: "POST"
           path: "/api/payments"
         - type: "EVENT_RELATION"
+          consumer-system: "orders"
+          consumer: "orders-payment-scs"
+          provider-system: "orders"
+          provider: "orders-intake"
+          message-type: "OrdersOrderPlacedEvent"
+        - type: "EVENT_RELATION"
           consumer-system: "jme"
           consumer: "jme-doc-service"
           provider-system: "orders"
           provider: "orders-payment-scs"
           message-type: "OrdersPaymentAcceptedEvent"
       messages:
+        # Two message types, because a reaction observed at runtime is a message in and a message out: the
+        # payment system reacts to an order and publishes what became of its payment, and the doc service
+        # reacts to that. See the reactions below.
+        - name: "OrdersOrderPlacedEvent"
+          kind: "EVENT"
+          scope: "PUBLIC"
+          topic: "orders.order"
+          description: "An order was placed and is waiting for its payment."
+          versions: [ "1.0.0" ]
+          contracts:
+            - role: "PUBLISHER"
+              component: "orders-intake"
+              system: "orders"
+              topic: "orders.order"
+              versions: [ "1.0.0" ]
+            - role: "CONSUMER"
+              component: "orders-payment-scs"
+              system: "orders"
+              topic: "orders.order"
+              versions: [ "1.0.0" ]
         - name: "OrdersPaymentAcceptedEvent"
           kind: "EVENT"
           scope: "PUBLIC"
@@ -100,3 +126,27 @@ stub:
               system: "jme"
               topic: "orders.payment"
               versions: [ "1.0.0" ]
+
+  # What actually reacted to what, as the reaction observer of a stage saw it - the second upstream the doc
+  # service reads, and what its runtime views are drawn from. A reaction is a message in, a component, and the
+  # messages it published in answer; the observer counts how often it saw one.
+  #
+  # These are the same components and message types the model above holds, and they have to be: every name
+  # the observer offers is resolved against the imported model, and one the model does not have is left out.
+  # The two of them are a chain - the payment system reacts to an order and publishes what became of the
+  # payment, the doc service reacts to that - which is what makes a runtime view worth looking at.
+  #
+  # A message may also have a variant, which the observer keys as 'messageType/variant'. None of these has
+  # one, so each message type is answered under its own name.
+  reactions:
+
+    - message-type: "OrdersOrderPlacedEvent"
+      component: "orders-payment-scs"
+      system: "orders"
+      publishes: [ "OrdersPaymentAcceptedEvent" ]
+      observed: 240
+
+    - message-type: "OrdersPaymentAcceptedEvent"
+      component: "jme-doc-service"
+      system: "jme"
+      observed: 120

@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.2.0] - 2026-09-11
+
+### Added
+
+- **`./start.sh` runs the whole example**: it checks the machine, builds, starts the containers and the three
+  services, imports the architecture repository, waits until every part of the site is published and opens the
+  documentation in a browser. Every step either succeeds or stops with what failed and where to look.
+- **The runtime views have something in them.** The upstream stub answers for a reaction observer as well, out
+  of the same landscape: two reactions forming a chain across the two systems, projected onto the three
+  replication indexes and the graphs behind them, behind the `jme_@reactions_#read` role the real observer
+  requires. Configured under `jeap.doc.reactions` with a client registration of its own.
+
+### Changed
+
+- **All four environments of the site read a model**, each of them from the one upstream stub, so every tree
+  carries the landscape instead of only `dev` - and the main environment at the site root is no longer empty.
+- The stubbed landscape has a second event, `OrdersOrderPlacedEvent`, which is what the first of the two
+  reactions answers with the second.
+
+### Dependencies
+- **ch.admin.bit.jeap:jeap-doc-service**: 2.0.0 → 2.1.0 (minor)
+
 ## [4.1.0] - 2026-09-10
 
 ### Dependencies

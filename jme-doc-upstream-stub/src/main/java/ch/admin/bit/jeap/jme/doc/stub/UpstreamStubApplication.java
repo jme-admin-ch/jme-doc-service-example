@@ -13,6 +13,12 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
  * instance is configured and none of what it produces. Running a real architecture repository beside it would
  * mean its database, its importers and its source data for the sake of two systems.
  * <p>
+ * <b>Two upstreams, one service.</b> The doc service reads an architecture repository for what is deployed and
+ * a reaction observer for what was seen happening, and both are stubbed here - out of one landscape, so that a
+ * runtime view cannot contradict the building block view beside it. Each of them keeps its own path root, its
+ * own role and its own client registration of the doc service, which is the half of an upstream integration
+ * that actually breaks on a real stage.
+ * <p>
  * <b>What it is not.</b> It is not a test double for the doc service's own tests, which stub HTTP where they
  * need to, and it is not a second implementation of the architecture repository: it serves one fixed landscape
  * and answers nothing that is not read by an import. The deployed instance of this example

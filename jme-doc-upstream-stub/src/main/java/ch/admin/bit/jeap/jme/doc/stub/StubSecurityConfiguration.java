@@ -22,9 +22,13 @@ import org.springframework.security.web.SecurityFilterChain;
  * so what the example exercises is the whole client registration: the token endpoint, the credentials and the
  * role. That is the half of an upstream integration which actually breaks on a real stage.
  * <p>
- * The chains mirror the doc service's own: the API authenticated with a bearer token and without CSRF
- * protection, because its caller holds a token and no cookie; the actuator open, because a test that waits for
- * this service has to be able to ask whether it is up.
+ * The chains mirror the doc service's own: the APIs authenticated with a bearer token and without CSRF
+ * protection, because their caller holds a token and no cookie; the actuator open, because a test that waits
+ * for this service has to be able to ask whether it is up.
+ * <p>
+ * <b>Two upstreams, two chains</b>, matching the two path roots the two of them serve - the architecture
+ * repository's {@code /docs-api} and the reaction observer's {@code /api}. Which role each demands is on the
+ * controller: they are different resources, and a token for one is not a token for the other.
  */
 @Configuration
 @EnableMethodSecurity
@@ -47,6 +51,21 @@ public class StubSecurityConfiguration {
                                                    AuthoritiesResolver authorities) throws Exception {
         return http
                 .securityMatcher("/docs-api/**")
+                .authorizeHttpRequests(requests -> requests.anyRequest().fullyAuthenticated())
+                .csrf(AbstractHttpConfigurer::disable)
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .oauth2ResourceServer(resourceServer -> resourceServer.jwt(jwt -> jwt
+                        .decoder(jwtDecoders.createJwtDecoder())
+                        .jwtAuthenticationConverter(new JeapAuthenticationConverter(authorities))))
+                .build();
+    }
+
+    @Bean
+    @Order(Ordered.LOWEST_PRECEDENCE - 10)
+    SecurityFilterChain reactionApiSecurityFilterChain(HttpSecurity http, JeapJwtDecoderFactory jwtDecoders,
+                                                       AuthoritiesResolver authorities) throws Exception {
+        return http
+                .securityMatcher("/api/**")
                 .authorizeHttpRequests(requests -> requests.anyRequest().fullyAuthenticated())
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))

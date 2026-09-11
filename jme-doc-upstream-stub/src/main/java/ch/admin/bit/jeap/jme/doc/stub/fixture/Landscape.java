@@ -13,21 +13,26 @@ import java.util.Optional;
  * would then show a runtime view contradicting its building block view, which is precisely what an example must
  * not teach. So the landscape is described once and each upstream projects it onto its own payloads.
  * <p>
- * <b>It is deliberately small</b>: two systems of two components each, one cross-system event and one REST call
- * within each system. Two systems rather than one because a single system can show neither a context view with
- * a neighbour in it nor a component's <i>Messages</i> page carrying another system's message - and those are
- * the pages worth looking at.
+ * <b>It is deliberately small</b>: two systems of two components each, two events, one REST call within each
+ * system, and two reactions. Two systems rather than one because a single system can show neither a context
+ * view with a neighbour in it nor a component's <i>Messages</i> page carrying another system's message - and
+ * those are the pages worth looking at. The two reactions are a chain across the two systems, which is what a
+ * runtime view is for: one system reacts to an order and publishes what became of its payment, and the other
+ * reacts to that.
  * <p>
  * The field names are the ones the architecture repository puts on the wire, so that the projection below is a
  * regrouping and not a translation. Adding a system to what this example documents is editing that file.
  *
- * @param systems the systems of the landscape, in the order they are answered in
+ * @param systems   the systems of the landscape, in the order they are answered in
+ * @param reactions what was observed reacting to what at runtime - the reaction observer's side of the same
+ *                  landscape, projected onto its graphs
  */
 @ConfigurationProperties("stub")
-public record Landscape(List<DocumentedSystem> systems) {
+public record Landscape(List<DocumentedSystem> systems, List<ObservedReaction> reactions) {
 
     public Landscape {
         systems = systems == null ? List.of() : List.copyOf(systems);
+        reactions = reactions == null ? List.of() : List.copyOf(reactions);
     }
 
     /** One system, by the name it is addressed with. */
@@ -105,6 +110,30 @@ public record Landscape(List<DocumentedSystem> systems) {
 
         public MessageContract {
             versions = versions == null ? List.of() : List.copyOf(versions);
+        }
+    }
+
+    /**
+     * One reaction, as the reaction observer saw it: a message arrived, a component did something, and it
+     * published these messages in answer.
+     * <p>
+     * <b>Every name here has to be in the landscape above.</b> The doc service resolves what the observer
+     * offers against the architecture model it imported and leaves out what the model does not hold, so a
+     * component or a message type only the reactions know would silently document nothing.
+     *
+     * @param messageType what triggered the reaction
+     * @param variant     the variant of that message type, or null where it has none. The observer keys a
+     *                    variant's graph as {@code messageType/variant}
+     * @param component   what reacted
+     * @param system      the system the reaction was published under, which is how the observer groups them
+     * @param publishes   the message types the reaction published in answer, empty where none was seen
+     * @param observed    how often the reaction was seen, which is what a runtime view's table shows
+     */
+    public record ObservedReaction(String messageType, String variant, String component, String system,
+                                   List<String> publishes, Integer observed) {
+
+        public ObservedReaction {
+            publishes = publishes == null ? List.of() : List.copyOf(publishes);
         }
     }
 }

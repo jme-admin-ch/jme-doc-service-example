@@ -47,11 +47,19 @@ public class ConditionalAnswers {
     }
 
     /**
-     * What a payload is answered with. Separate from {@link #answer} because an index that names another
-     * resource's tag has to compute that resource's tag without answering it.
+     * What a payload is answered with. Public because an index that names another resource's tag has to
+     * compute that resource's tag without answering it.
      */
-    private String tagOf(Object payload) {
-        return "\"sha256:%s\"".formatted(sha256(json.writeValueAsBytes(payload)));
+    public String tagOf(Object payload) {
+        return "\"sha256:%s\"".formatted(fingerprintOf(payload));
+    }
+
+    /**
+     * The hash of a payload on its own, without the quotes an entity tag is wrapped in. The reaction observer
+     * carries one of these inside a graph resource, beside the tag it answers with.
+     */
+    public String fingerprintOf(Object payload) {
+        return sha256(json.writeValueAsBytes(payload));
     }
 
     private static String sha256(byte[] bytes) {

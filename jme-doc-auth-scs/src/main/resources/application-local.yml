@@ -44,6 +44,16 @@ oauth-mock-data:
       userroles: [ "jme_@architecture-model_#read" ]
       audience: [ "jme-doc-upstream-stub" ]
 
+    # The doc service reading the reaction graphs of the stubbed observer. Like the architecture model this
+    # role carries no tenant part - what reacted to what is nobody's system in particular - and it is issued
+    # for the audience of the upstream. It is a second client rather than a second role on the one above,
+    # because on a real stage these are two services, each with its own registration.
+    - client-id: "jme-doc-reactions-reader"
+      client-secret: "{noop}secret"
+      context: "SYS"
+      userroles: [ "jme_@reactions_#read" ]
+      audience: [ "jme-doc-upstream-stub" ]
+
     # Whoever operates the instance: they may ask for a site to be published and read what the documentation
     # generator has been doing. These two roles carry no tenant part, unlike the upload roles above: a build
     # regenerates the documentation of every system on the site, not that of one system.

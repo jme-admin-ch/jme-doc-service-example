@@ -14,13 +14,26 @@ spring:
         # The token the architecture model is read with. It carries 'jme_@architecture-model_#read' and is
         # issued for the audience of the upstream rather than of this service: the token is presented to the
         # upstream, not to the service that fetched it.
+        #
+        # One registration for all four environments, because all four read the one upstream stub of this
+        # example. Wherever this instance is deployed for real there is one per stage: the architecture
+        # repository of a stage is authorized by the authorization server of that stage.
         registration:
-          archrepo-dev:
+          archrepo:
             client-id: jme-doc-archrepo-reader
             client-secret: secret
             authorization-grant-type: client_credentials
+          # The token the reaction graphs are read with, carrying 'jme_@reactions_#read'. A registration of
+          # its own, because the reaction observer is a service of its own: on a real stage the two are
+          # different URLs behind different clients, even where the same authorization server issues both.
+          reactions:
+            client-id: jme-doc-reactions-reader
+            client-secret: secret
+            authorization-grant-type: client_credentials
         provider:
-          archrepo-dev:
+          archrepo:
+            token-uri: http://localhost:8081/jme-doc-auth-scs/oauth2/token
+          reactions:
             token-uri: http://localhost:8081/jme-doc-auth-scs/oauth2/token
 
 jeap:
@@ -32,16 +45,48 @@ jeap:
       url: http://localhost:8080
     archrepo:
       environments:
-        # Where the architecture model of the environment 'dev' is read from: the upstream stub of this
-        # example, see the jme-doc-upstream-stub module. Only 'dev' has one - the other three environments of
-        # the site carry no model, which is a legitimate configuration and is what keeps this example small.
+        # Where the architecture model of each environment is read from: the upstream stub of this example,
+        # see the jme-doc-upstream-stub module. All four environments of the site read the same stub, so every
+        # tree of the site has the landscape in it and the environment switcher leads somewhere - the stages
+        # of this example differ in nothing else.
         #
-        # Wherever this instance is deployed for real, this is the internal URL of the architecture repository
-        # of that stage, and the client registration is issued by the authorization server of that stage,
-        # which is not the doc service's own.
+        # Wherever this instance is deployed for real, each of these is the internal URL of the architecture
+        # repository of that stage, and its client registration is issued by the authorization server of that
+        # stage, which is not the doc service's own.
         dev:
           url: http://localhost:8082/jme-doc-upstream-stub
-          client-registration: archrepo-dev
+          client-registration: archrepo
+        ref:
+          url: http://localhost:8082/jme-doc-upstream-stub
+          client-registration: archrepo
+        abn:
+          url: http://localhost:8082/jme-doc-upstream-stub
+          client-registration: archrepo
+        prod:
+          url: http://localhost:8082/jme-doc-upstream-stub
+          client-registration: archrepo
+    reactions:
+      # What reacted to what at runtime, read from the reaction observer of each environment and drawn as the
+      # runtime views of a system, a component and a message. Off by default in the doc service, because a
+      # platform may run no observer at all - this example stubs one, in the same service that stubs the
+      # architecture repository, so the runtime views have something in them.
+      #
+      # The reactions are steps of the architecture import: an observed name means nothing until it has been
+      # resolved against the model, so an environment named here has to have an architecture repository too.
+      enabled: true
+      environments:
+        dev:
+          url: http://localhost:8082/jme-doc-upstream-stub
+          client-registration: reactions
+        ref:
+          url: http://localhost:8082/jme-doc-upstream-stub
+          client-registration: reactions
+        abn:
+          url: http://localhost:8082/jme-doc-upstream-stub
+          client-registration: reactions
+        prod:
+          url: http://localhost:8082/jme-doc-upstream-stub
+          client-registration: reactions
   security:
     oauth2:
       resourceserver:

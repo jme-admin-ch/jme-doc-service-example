@@ -12,14 +12,14 @@ with the database and the object storage, and an integration test that uploads a
 
 ## The modules
 
-| Module                  | What it is                                                                                                                                          |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jme-doc-service`       | The doc service instance: it depends on `jeap-doc-service-instance` and adds its configuration                                                      |
-| `jme-doc-auth-scs`      | An instance of the [jEAP OAuth mock server](https://github.com/jeap-admin-ch/jeap-oauth-mock-server), issuing the tokens the doc pipelines use      |
-| `jme-doc-upstream-stub` | The upstream the doc service reads: a small service answering the `/docs-api` of an architecture repository over a fixed landscape of two systems   |
-| `jme-doc-test`          | The integration test: it starts the three services, imports the model, publishes the site and reads it - over the API and in a browser              |
-| `docker/`               | The database and the object storage the doc service needs, with its bucket and the lifecycle rule expiring the uploaded bundles                     |
-| `docs/`                 | [Running the example on a developer machine](docs/local-development.md) - the prerequisites in full, and what to do when the service does not start |
+| Module                  | What it is                                                                                                                                                                                          |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jme-doc-service`       | The doc service instance: it depends on `jeap-doc-service-instance` and adds its configuration                                                                                                      |
+| `jme-doc-auth-scs`      | An instance of the [jEAP OAuth mock server](https://github.com/jeap-admin-ch/jeap-oauth-mock-server), issuing the tokens the doc pipelines use                                                      |
+| `jme-doc-upstream-stub` | The upstreams the doc service reads: one small service answering both the `/docs-api` of an architecture repository and the graph API of a reaction observer, over a fixed landscape of two systems |
+| `jme-doc-test`          | The integration test: it starts the three services, imports the model, publishes the site and reads it - over the API and in a browser                                                              |
+| `docker/`               | The database and the object storage the doc service needs, with its bucket and the lifecycle rule expiring the uploaded bundles                                                                     |
+| `docs/`                 | [Running the example on a developer machine](docs/local-development.md) - the prerequisites in full, and what to do when the service does not start                                                 |
 
 ## Roles: a system may only upload its own documentation
 
@@ -36,6 +36,7 @@ documentation is a separate resource, `docs`. The clients are configured in
 | `jme-doc-reader`            | `secret` | `jme_@docs_#read`                       | read the doc service API                                |
 | `jme-doc-operator`          | `secret` | `jme_@sites_#admin`, `jme_@sites_#read` | ask for a site to be published, and read what was built |
 | `jme-doc-archrepo-reader`   | `secret` | `jme_@architecture-model_#read`         | read the architecture model from the upstream           |
+| `jme-doc-reactions-reader`  | `secret` | `jme_@reactions_#read`                  | read the observed reactions from the upstream           |
 
 **The `sites` roles carry no tenant part**, and that is the difference that matters: an upload role is granted
 per system so that a pipeline can only change its own documentation, while a build regenerates the whole site
@@ -58,6 +59,36 @@ for it, and what each startup failure means.
 Use the provided Maven wrapper to build and run the project.
 
 ## Getting started
+
+### Everything at once
+
+```shell
+./start.sh
+```
+
+The script is every section below in one go: it checks the machine can do all of it, builds the example,
+starts the database and the object storage, starts the three services, asks for the model and the reactions
+of every environment to be imported, waits until every part of the site is published, and opens the
+documentation in Chrome. Every step
+either succeeds or stops the script with what failed and where to look - the services log into
+`target/local/`. Besides the prerequisites above it needs `curl` and `jq`, and it says so before it does
+anything.
+
+| Option           | What it does                                                                              |
+| ---------------- | ----------------------------------------------------------------------------------------- |
+| `--skip-build`   | start without building first, for a repeat start of an example that is already built      |
+| `--no-browser`   | publish the site but open nothing                                                         |
+| `--keep-running` | return to the prompt and leave the services running, instead of staying in the foreground |
+
+It stays in the foreground and stops the three services again on Ctrl-C. The containers are left running -
+they hold the database and the object storage, and starting them again is free:
+
+```shell
+docker compose -f docker/docker-compose.yml down
+```
+
+What follows is the same thing by hand, which is what to read to know what the script did - and what to use
+for everything the script does not do, an upload above all.
 
 ### Build
 
@@ -175,7 +206,7 @@ for all parameters.
 
 ### Where the documentation on the site comes from
 
-Two sources, and only one of them is an upload.
+Three sources, and only one of them is an upload.
 
 **The architecture model** is imported from an architecture repository into the doc service's own database,
 and a build reads that copy - so a repository that is being deployed cannot fail a documentation build. Out of
@@ -190,21 +221,49 @@ landscape of **two systems of two components each**, written down in
 documents is editing that file. The stub demands the same semantic role the real architecture repository does,
 so what the example exercises is the whole client registration and not only a URL.
 
-Ask for the model to be imported, with the operator client:
+**All four environments of the site read that one stub**, so every tree carries the landscape and the
+environment switcher leads somewhere. That is the one thing about this example that a real instance does
+differently: there, `jeap.doc.archrepo.environments` names the architecture repository of each stage, and
+those are four different services holding four different models.
+
+Ask for the model of every environment to be imported, with the operator client:
 
 ```shell
-curl -i -X POST http://localhost:8080/jme-doc-service/api/architecture/environments/dev/imports \
+curl -i -X POST http://localhost:8080/jme-doc-service/api/architecture/imports \
   -H "Authorization: Bearer $ADMIN"
 
 curl -s http://localhost:8080/jme-doc-service/api/architecture/environments -H "Authorization: Bearer $ADMIN"
 ```
 
-**The import is also the trigger**: having stored a landscape that is not the one already there, it asks for
-every part of the site, so the documentation appears seconds later. Only the environment `dev` reads a model
-here, so it is the `dev` tree that has one:
-http://localhost:8080/jme-doc-service/dev/systems/jme/.
+One environment on its own is asked for at `…/api/architecture/environments/dev/imports`.
 
-**The uploaded documentation** is the other source - the custom chapters a repository writes next to its code.
+**The import is also the trigger**: having stored a landscape that is not the one already there, it asks for
+every part of the site, so the documentation appears seconds later - at
+http://localhost:8080/jme-doc-service/systems/jme/ and under each of `/dev/`, `/ref/` and `/abn/`.
+
+**The observed reactions** are the second, and they come from a different upstream: the
+[reaction observer](https://github.com/jeap-admin-ch/jeap-reaction-observer-service) of the stage, which
+watches what actually reacts to what at runtime. The doc service imports them as steps of the same
+architecture import - a reaction means nothing until its names are resolved against the model - and draws them
+as the runtime views of a system, of a component and of a message. `jme-doc-upstream-stub` answers for the
+observer too, out of the same landscape, so what the site shows in chapter 6 cannot contradict what it shows
+in chapter 5:
+
+|                                                                                         |                                                         |
+| --------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `…/systems/jme/system-architecture/runtime-view/system-reactions/`                      | which message makes a component of `jme` react          |
+| `…/components/jme-doc-service/component-architecture/runtime-view/component-reactions/` | what that one component reacts to                       |
+| the page of a message                                                                   | what answers it, as a section of the message's own page |
+
+The reactions of this example are a chain across its two systems: an order is placed, `orders-payment-scs`
+reacts and publishes what became of the payment, and `jme-doc-service` reacts to that. They are written down
+in [`landscape.yml`](jme-doc-upstream-stub/src/main/resources/landscape.yml) beside the model, and **every
+name in them is a name the model holds** - the doc service resolves what an observer offers against the
+imported model and leaves out what the model does not have, so a reaction naming something else would document
+nothing. It is configured under `jeap.doc.reactions` and is **off by default** in the doc service, because a
+platform may run no observer at all.
+
+**The uploaded documentation** is the third source - the custom chapters a repository writes next to its code.
 It is stored, and it is **not on the site yet**: taking an uploaded documentation set over into the generated
 site is not written yet in the doc service. What an upload does today is what the next sections show.
 
@@ -401,10 +460,15 @@ role matrix in both directions: a pipeline may neither publish the site nor impo
 built, an operator may not upload documentation (`403`), no token is `401`, and a site this instance does not
 configure is `404`.
 
-In the browser it covers the three things no HTTP assertion can see: that a system of the model is reachable
+It also covers the **second upstream**: that the three reaction indexes were read and their graphs stored, and
+that the runtime views they are drawn into are served - chapter 6 of a system and of a component, with the
+message and the component the observer saw in them.
+
+In the browser it covers the four things no HTTP assertion can see: that a system of the model is reachable
 from the index of a **different** part's build, that a component context view is really **rendered as a
-picture** - the generator emits no image at all, only a fenced source block a plugin turns into one - and that
-the **search** finds a generated page, which is an index downloaded and queried in the browser.
+picture** - the generator emits no image at all, only a fenced source block a plugin turns into one - that a
+reaction graph is rendered as well, which is a **GraphViz** source block where a context view is a PlantUML
+one, and that the **search** finds a generated page, which is an index downloaded and queried in the browser.
 
 ## Configuration of the instance
 
@@ -415,7 +479,9 @@ Everything this example configures is in three files:
   limit of an upload, how long an upload is kept, the one documentation site this instance publishes and what it
   is called, and where the site generator finds Node and the site template's dependencies
 - [`application-local.yml`](jme-doc-service/src/main/resources/application-local.yml) - database, object storage,
-  OAuth issuer and the origin the site is published under, all of the developer machine
+  OAuth issuer and the origin the site is published under, all of the developer machine, plus the two upstreams
+  of each environment: the architecture repository under `jeap.doc.archrepo` and the reaction observer under
+  `jeap.doc.reactions`, each with a client registration of its own
 - [`application-ci.yml`](jme-doc-service/src/main/resources/application-ci.yml) - the same, with the containers
   reached under their compose service names
 

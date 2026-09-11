@@ -29,7 +29,9 @@ import software.amazon.awssdk.services.s3.model.Tag;
 
 import java.net.URI;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -39,6 +41,7 @@ import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.awaitility.Awaitility.await;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.endsWith;
@@ -57,11 +60,16 @@ import static org.hamcrest.Matchers.nullValue;
  * ready here, its {@code jeap.doc.build.*} configuration is where to look, and {@code docs/local-development.md}
  * says what it has to point at.
  * <p>
- * <b>The whole chain, in the order a landscape travels it</b>: an operator asks for the architecture model to
- * be imported, the import stores it and asks for every part of the site, the parts are generated and
- * published, and the pages are then read by a browser that never authenticated itself. The model comes from
- * the upstream stub of this example rather than from an architecture repository - see the
+ * <b>The whole chain, in the order a landscape travels it</b>: an operator asks for the upstreams to be
+ * imported, the import stores what they answer and asks for every part of the site, the parts are generated
+ * and published, and the pages are then read by a browser that never authenticated itself. Both upstreams are
+ * the stub of this example rather than an architecture repository and a reaction observer - see the
  * {@code jme-doc-upstream-stub} module for what it holds and why it exists.
+ * <p>
+ * <b>Two upstreams, and the second one is what the runtime views are drawn from</b>: the reactions are steps
+ * of the same import, they run after the model because every observed name is resolved against it, and the
+ * documentation of an environment is asked for once its whole chain has run. Every environment of this site
+ * reads both, so every tree of it carries the landscape and its runtime views.
  * <p>
  * <b>A site is published as one build per part</b>: the <i>shell</i>, which carries the site's own pages and
  * everything no system claims, plus one part per system of the model. The stubbed landscape has two systems,
@@ -93,7 +101,20 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      */
     private static final String SITE = "default";
 
-    /** The one environment of the site an architecture model is configured for. */
+    /**
+     * The environments of the site. All four read an architecture model here, and all four read the same one:
+     * the site has one upstream behind it, so every tree of it carries the stubbed landscape and the
+     * environment switcher leads somewhere. {@code prod} is the main environment and is served at the root.
+     */
+    private static final List<String> ENVIRONMENTS = List.of("dev", "ref", "abn", "prod");
+
+    /**
+     * The main environment. It is served at the site root and has <b>no path of its own</b>, so it is the one
+     * environment the trees below are not read under {@code /<environment>/}.
+     */
+    private static final String MAIN_ENVIRONMENT = "prod";
+
+    /** One of the others, the one whose tree is read below - any of them would do, they carry the same model. */
     private static final String ENVIRONMENT = "dev";
 
     /**
@@ -111,12 +132,13 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     private static final String BUILDS_PATH = SITE_PATH + "/builds";
     private static final String PARTS_PATH = SITE_PATH + "/parts";
     private static final String SHELL_BUILDS_PATH = PARTS_PATH + "/" + SHELL_PART + "/builds";
-    private static final String IMPORTS_PATH = "/api/architecture/environments/" + ENVIRONMENT + "/imports";
+    private static final String IMPORTS_PATH = "/api/architecture/imports";
     private static final String IMPORT_STATE_PATH = "/api/architecture/environments";
     private static final String UPLOAD_PATH = "/api/uploads/docs/";
 
-    /** The state of the model import of the one environment that has an architecture repository. */
-    private static final String MODEL_IMPORT = "[0].imports.find { it.kind == 'MODEL' }";
+    /** The three steps that read the reaction observer rather than the architecture repository. */
+    private static final List<String> REACTION_KINDS =
+            List.of("SYSTEM_REACTIONS", "COMPONENT_REACTIONS", "MESSAGE_REACTIONS");
 
     /** What the search downloads: one index over the whole site, published beside the parts it covers. */
     private static final String SEARCH_INDEX = "/pagefind/pagefind.js";
@@ -127,6 +149,24 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      */
     private static final String SYSTEM_CONTEXT_VIEW =
             "/systems/jme/system-architecture/context-and-scope/system-context-view/";
+
+    /**
+     * What the stubbed reaction observer says was seen happening: the doc service reacting to the event of
+     * the other system. Both are in the architecture model too, and they have to be - a name the model does
+     * not hold is not imported, so a reaction naming one would document nothing.
+     */
+    private static final String REACTING_COMPONENT = "jme-doc-service";
+    private static final String REACTING_MESSAGE = "OrdersPaymentAcceptedEvent";
+
+    /**
+     * Where the generator writes a runtime view: chapter 6 of the system, and chapter 6 of the component
+     * inside the chapter that decomposes the system into its components.
+     */
+    private static final String SYSTEM_REACTIONS =
+            "/systems/jme/system-architecture/runtime-view/system-reactions/";
+    private static final String COMPONENT_REACTIONS =
+            "/systems/jme/system-architecture/building-block-view/components/" + REACTING_COMPONENT
+            + "/component-architecture/runtime-view/component-reactions/";
 
     /** What the site of this example calls itself - configured in the instance, and read back off the page. */
     private static final String SITE_TITLE = "JME Documentation";
@@ -177,8 +217,8 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * Four settings of the doc service are the suite's rather than the instance's, and each one is here to
      * make an outcome of this suite the outcome of something it did:
      * <ul>
-     *   <li>where the upstream stub is, because it runs on a free port here rather than on the 8082 the
-     *       instance configures;
+     *   <li>where the upstream stub is - for every environment, because all four read it - since it runs on a
+     *       free port here rather than on the 8082 the instance configures;
      *   <li>no import on startup and no import schedule, so the only import that happens is the one this
      *       suite asks for - which is what lets it show the site before the model and after it;
      *   <li>the poll interval, so a build starts seconds after it is asked for instead of within half a
@@ -199,18 +239,23 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
                 "jeap.security.oauth2.resourceserver.authorization-server.issuer", AUTH_BASE_URL,
                 "jeap.security.oauth2.resourceserver.authorization-server.jwk-set-uri",
                 AUTH_BASE_URL + "/.well-known/jwks.json"));
-        startService("jme-doc-service", DOC_BASE_URL, Map.of(
+        Map<String, String> docService = new LinkedHashMap<>(Map.of(
                 "server.port", String.valueOf(DOC_PORT),
                 "jeap.security.oauth2.resourceserver.authorization-server.issuer", AUTH_BASE_URL,
                 "jeap.security.oauth2.resourceserver.authorization-server.jwk-set-uri",
                 AUTH_BASE_URL + "/.well-known/jwks.json",
-                "spring.security.oauth2.client.provider.archrepo-dev.token-uri", AUTH_BASE_URL + "/oauth2/token",
-                "jeap.doc.archrepo.environments." + ENVIRONMENT + ".url", STUB_BASE_URL,
+                "spring.security.oauth2.client.provider.archrepo.token-uri", AUTH_BASE_URL + "/oauth2/token",
+                "spring.security.oauth2.client.provider.reactions.token-uri", AUTH_BASE_URL + "/oauth2/token",
                 "jeap.doc.archrepo.import.on-startup", "false",
                 "jeap.doc.archrepo.import.cron", "",
                 "jeap.doc.build.poll-interval", "PT" + POLL_INTERVAL_SECONDS + "S",
                 "jeap.doc.build.reconcile-cron", "-",
                 "jeap.doc.publication.url", "http://localhost:" + DOC_PORT));
+        ENVIRONMENTS.forEach(environment -> {
+            docService.put("jeap.doc.archrepo.environments." + environment + ".url", STUB_BASE_URL);
+            docService.put("jeap.doc.reactions.environments." + environment + ".url", STUB_BASE_URL);
+        });
+        startService("jme-doc-service", DOC_BASE_URL, docService);
     }
 
     /**
@@ -238,17 +283,18 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     }
 
     /**
-     * Where the model of an environment is read from, as an operator asks it. Only {@code dev} has an
-     * architecture repository here; the other three environments of the site carry no model, which is a
-     * legitimate configuration and is what keeps this example to three parts.
+     * Where the model of each environment is read from, as an operator asks it. Every environment of this
+     * example reads the one upstream stub - a real instance names the architecture repository of the stage
+     * here, and those are four different services.
      */
     @Test
     @Order(1)
     void theImportStateSaysWhereTheModelComesFrom() {
         JsonPath imports = readJson(IMPORT_STATE_PATH);
 
-        assertThat(imports.getList("environment", String.class)).containsExactly(ENVIRONMENT);
-        assertThat(imports.getString("[0].sourceUrl")).isEqualTo(STUB_BASE_URL);
+        assertThat(imports.getList("environment", String.class))
+                .containsExactlyInAnyOrderElementsOf(ENVIRONMENTS);
+        assertThat(imports.getList("sourceUrl", String.class)).containsOnly(STUB_BASE_URL);
         assertThat(imports.getList("[0].imports.kind", String.class)).contains("MODEL");
     }
 
@@ -264,7 +310,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     @Test
     @Order(2)
     void askingForTheModelImportsItAndPublishesEveryPart() {
-        String before = readJson(IMPORT_STATE_PATH).getString(MODEL_IMPORT + ".lastSuccessAt");
+        List<String> before = importedAt();
 
         given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(operatorToken())
@@ -272,15 +318,17 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
                 .post(IMPORTS_PATH)
                 .then()
                 .statusCode(202)
-                .body("environments", equalTo(List.of(ENVIRONMENT)))
+                .body("environments", containsInAnyOrder(ENVIRONMENTS.toArray()))
                 .body("refused", empty())
                 .body("durable", equalTo(false));
 
-        await().atMost(Duration.ofMinutes(2))
+        // Every environment, not the first one to arrive: the imports run one after another on one thread,
+        // and a site whose trees are generated from half an import would be a site read too early.
+        await().atMost(Duration.ofMinutes(4))
                 .pollInterval(Duration.ofSeconds(1))
                 .until(() -> {
-                    String now = readJson(IMPORT_STATE_PATH).getString(MODEL_IMPORT + ".lastSuccessAt");
-                    return now != null && !now.equals(before);
+                    List<String> now = importedAt();
+                    return !now.contains(null) && !now.equals(before);
                 });
 
         assertThat(readJson(PARTS_PATH).getList("part", String.class))
@@ -361,23 +409,95 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
 
     /**
      * A page out of the part that carries a system, which is the whole point of importing a model: the tree of
-     * that system is generated and served under its own route. Only {@code dev} has a model here, so only that
-     * environment's tree has one.
+     * that system is generated and served under the route of every environment - the main one at the root
+     * included, which is what a reader who follows a bare link to this instance gets.
      */
     @Test
     @Order(6)
     void theDocumentationGeneratedFromTheModelIsServed() {
+        for (String environment : ENVIRONMENTS) {
+            // The main environment is served at the root and nowhere else, which is where its tree is read.
+            String tree = environment.equals(MAIN_ENVIRONMENT) ? "" : "/" + environment;
+
+            given().baseUri(DOC_BASE_URL)
+                    .when()
+                    .get(tree + "/systems/jme/")
+                    .then()
+                    .statusCode(200);
+
+            given().baseUri(DOC_BASE_URL)
+                    .when()
+                    .get(tree + "/systems/orders/")
+                    .then()
+                    .statusCode(200);
+        }
+    }
+
+    /**
+     * The reactions, which are the <b>second upstream</b> of a documentation site: the reaction observer of
+     * the environment, read as steps of the same import and drawn as the runtime views of a system, a
+     * component and a message.
+     * <p>
+     * The stub answers for the observer as well as for the architecture repository, so what this asserts is
+     * the whole of that integration in this instance: a second client registration, a second role, the three
+     * replication indexes, and the pages the graphs end up on.
+     */
+    @Test
+    @Order(7)
+    void theReactionsObservedAtRuntimeAreImported() {
+        JsonPath imports = readJson(IMPORT_STATE_PATH);
+
+        for (String kind : REACTION_KINDS) {
+            String step = "find { it.environment == '%s' }.imports.find { it.kind == '%s' }"
+                    .formatted(ENVIRONMENT, kind);
+            assertThat(imports.getString(step + ".lastSuccessAt"))
+                    .as("the %s of %s were imported", kind, ENVIRONMENT)
+                    .isNotNull();
+            assertThat(imports.getInt(step + ".itemCount"))
+                    .as("graphs of %s stored for %s", kind, ENVIRONMENT)
+                    .isPositive();
+            assertThat(imports.getString(step + ".failureReason")).isNull();
+        }
+    }
+
+    /**
+     * Where a reaction ends up on the site. Chapter 6 of a system and of a component, and - for a message -
+     * a section of the message's own page, so that a reader who has the message in front of them sees what
+     * answers it without leaving the page.
+     * <p>
+     * <b>What is asserted is the content and not only the status.</b> A page of a runtime view carries the
+     * graph as a source block and the same reactions as a table, and it is the table that survives whatever
+     * the browser does with the source - so the names have to be in the answer.
+     */
+    @Test
+    @Order(8)
+    void theRuntimeViewsOfTheReactionsAreServed() {
         given().baseUri(DOC_BASE_URL)
                 .when()
-                .get("/" + ENVIRONMENT + "/systems/jme/")
+                .get("/" + ENVIRONMENT + SYSTEM_REACTIONS)
                 .then()
-                .statusCode(200);
+                .statusCode(200)
+                // The message the doc service was observed reacting to, and the component that reacted.
+                .body(containsString(REACTING_MESSAGE))
+                .body(containsString(REACTING_COMPONENT));
 
         given().baseUri(DOC_BASE_URL)
                 .when()
-                .get("/" + ENVIRONMENT + "/systems/orders/")
+                .get("/" + ENVIRONMENT + COMPONENT_REACTIONS)
                 .then()
-                .statusCode(200);
+                .statusCode(200)
+                .body(containsString(REACTING_MESSAGE));
+
+        // The system whose component published that message reacts too, and to the other message type - the
+        // chain the reactions of the stubbed landscape are: an order is placed, the payment system reacts and
+        // publishes what became of the payment, the doc service reacts to that.
+        given().baseUri(DOC_BASE_URL)
+                .when()
+                .get("/" + ENVIRONMENT + "/systems/orders/system-architecture/runtime-view/system-reactions/")
+                .then()
+                .statusCode(200)
+                .body(containsString("OrdersOrderPlacedEvent"))
+                .body(containsString("orders-payment-scs"));
     }
 
     /**
@@ -385,7 +505,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * the navigation of the documentation they were looking for rather than an error page of the service.
      */
     @Test
-    @Order(7)
+    @Order(9)
     void anUnknownPageIsAnsweredWithTheSitesOwnNotFoundPage() {
         given().baseUri(DOC_BASE_URL)
                 .when()
@@ -401,7 +521,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * is written by a build that cannot see the pages it points at.
      */
     @Test
-    @Order(8)
+    @Order(10)
     void theSystemsOfTheModelAreReachableFromTheIndex() {
         try (BrowserContext context = browser.newContext()) {
             Page page = open(context, "/" + ENVIRONMENT + "/");
@@ -420,7 +540,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * showing a wall of diagram source.
      */
     @Test
-    @Order(9)
+    @Order(11)
     void aContextDiagramIsRenderedInTheBrowser() {
         try (BrowserContext context = browser.newContext()) {
             Page page = open(context, "/" + ENVIRONMENT + SYSTEM_CONTEXT_VIEW);
@@ -437,11 +557,33 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     }
 
     /**
+     * And the reaction graph, which is the other renderer: a runtime view is a <b>GraphViz</b> source block
+     * where a context view is a PlantUML one, so a plugin registered for the one and not the other is a page
+     * of source text that every HTTP assertion above passes.
+     */
+    @Test
+    @Order(12)
+    void aReactionGraphIsRenderedInTheBrowser() {
+        try (BrowserContext context = browser.newContext()) {
+            Page page = open(context, "/" + ENVIRONMENT + SYSTEM_REACTIONS);
+
+            Locator diagram = page.locator("[data-plantuml-diagram] svg:has(text)").first();
+            PlaywrightAssertions.assertThat(diagram).isVisible();
+            // What proves the source was parsed is the content: nothing at all is drawn for one that is not.
+            // The labels are the names without the suffix every component and message type carries - a
+            // picture says what it is of in the room it has, and the table beside it carries both in full.
+            PlaywrightAssertions.assertThat(diagram).containsText("jme-doc");
+            PlaywrightAssertions.assertThat(diagram).containsText("OrdersPaymentAccepted");
+            PlaywrightAssertions.assertThat(diagram).not().containsText("Syntax Error");
+        }
+    }
+
+    /**
      * And the other one: the search is an index downloaded by the page and queried in the browser, so a
      * request for the search page tells nothing about whether anything can be found.
      */
     @Test
-    @Order(10)
+    @Order(13)
     void theSearchFindsAGeneratedPageInTheBrowser() {
         // One index over the whole site, built at the end of the build pass that published the parts rather
         // than by any one of them - so it arrives after the pages do, and a site that is already being read
@@ -472,7 +614,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * be generated at all.
      */
     @Test
-    @Order(11)
+    @Order(14)
     void theHistorySaysWhatTheGeneratorDid() {
         given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(operatorToken())
@@ -500,7 +642,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * one part of a site has stopped being published while the rest of it is fine.
      */
     @Test
-    @Order(12)
+    @Order(15)
     void theBuildsOfOnePartAreReadableOnTheirOwn() {
         JsonPath builds = readJson(SHELL_BUILDS_PATH);
 
@@ -513,7 +655,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * instance, and tagged - a build id is used once, so nothing that is being read is ever written to.
      */
     @Test
-    @Order(13)
+    @Order(16)
     void theGeneratedSiteLiesInTheObjectStorageUnderThePrefixOfItsBuild() {
         String prefix = "sites/" + SITE + "/" + publishedBuildId + "/";
 
@@ -542,7 +684,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * rather than the trigger being silently dropped.
      */
     @Test
-    @Order(14)
+    @Order(17)
     void anUploadAsksForABuildOfThePartThatCarriesItsSystem() {
         long before = newestBuildId();
 
@@ -571,7 +713,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * is what is wanted after a change outside the content.
      */
     @Test
-    @Order(15)
+    @Order(18)
     void askingForOnePartPublishesItWhetherItsContentMovedOrNot() {
         long before = newestBuildId();
 
@@ -597,7 +739,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * under it.
      */
     @Test
-    @Order(16)
+    @Order(19)
     void askingForAPartTheSiteDoesNotHaveIsNotFound() {
         given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(operatorToken())
@@ -614,7 +756,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * neither is the role that reads the upload API.
      */
     @Test
-    @Order(17)
+    @Order(20)
     void administeringWithAnythingButTheAdminRoleIsRejected() {
         String readerToken = fetchAccessToken(AUTH_BASE_URL, "jme-doc-reader", "secret");
 
@@ -629,7 +771,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * documentation of a system. The two resources are separate in both directions.
      */
     @Test
-    @Order(18)
+    @Order(21)
     void uploadingWithTheOperatorRoleIsRejected() {
         given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(operatorToken())
@@ -643,7 +785,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     }
 
     @Test
-    @Order(19)
+    @Order(22)
     void readingWhatTheGeneratorDidWithAnUploadRoleIsRejected() {
         for (String path : List.of(SITE_PATH, BUILDS_PATH, PARTS_PATH, SHELL_BUILDS_PATH, IMPORT_STATE_PATH)) {
             given().baseUri(DOC_BASE_URL)
@@ -656,7 +798,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     }
 
     @Test
-    @Order(20)
+    @Order(23)
     void administeringASiteWithoutATokenIsRejected() {
         for (String path : List.of(SITE_PATH, BUILDS_PATH, PARTS_PATH, SHELL_BUILDS_PATH, IMPORT_STATE_PATH)) {
             given().baseUri(DOC_BASE_URL).when().get(path).then().statusCode(401);
@@ -670,7 +812,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * something that might appear later - and it is refused rather than answered with an empty history.
      */
     @Test
-    @Order(21)
+    @Order(24)
     void askingForABuildOfASiteThisInstanceDoesNotConfigureIsNotFound() {
         given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(operatorToken())
@@ -690,7 +832,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * exactly what is already published, and the suite has read everything it came for.
      */
     @Test
-    @Order(22)
+    @Order(25)
     void askingForTheWholeSiteAsksForEveryPartOfIt() {
         given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(operatorToken())
@@ -714,6 +856,23 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
         page.navigate(DOC_BASE_URL + path);
         page.waitForFunction("() => document.documentElement.dataset.hasHydrated === 'true'");
         return page;
+    }
+
+    /**
+     * When each step of each environment's import last succeeded, null where one never has.
+     * <p>
+     * <b>Every step and not only the model</b>, because the reactions are steps of the same import that run
+     * after it, and the documentation of an environment is asked for once its whole chain has run - so a site
+     * read as soon as the model is in is a site read before its runtime views exist.
+     */
+    private List<String> importedAt() {
+        JsonPath state = readJson(IMPORT_STATE_PATH);
+        List<String> succeededAt = new ArrayList<>();
+        for (int environment = 0; environment < ENVIRONMENTS.size(); environment++) {
+            succeededAt.addAll(
+                    state.getList("[%d].imports.lastSuccessAt".formatted(environment), String.class));
+        }
+        return succeededAt;
     }
 
     /** Whether every part of the site is serving something and none of them is waiting for a build. */

@@ -25,6 +25,20 @@ nvm install 24 && nvm use 24
 node --version          # v24.x
 ```
 
+## Everything at once
+
+Everything this page describes is also a script:
+
+```shell
+./start.sh
+```
+
+It checks the four prerequisites before it does anything - including which Node it will hand the service, so
+that the one failure this page exists for cannot happen silently - then builds, starts the containers and the
+three services, imports the model and the reactions of every environment, waits until every part of the site
+is published and opens the documentation. What follows is the same thing by hand, and what to read when the script stops at one of the
+steps.
+
 ## What the Maven build does with npm
 
 ```shell
@@ -56,20 +70,25 @@ An instance that ships a container does none of this: it installs the dependenci
 service documents. This example runs on a developer machine, so it installs them into `target/` and points
 `jeap.doc.build.node-modules-directory` there.
 
-## Where the architecture model comes from
+## Where the architecture model and the reactions come from
 
-The doc service generates its documentation out of an architecture model, and this example has no architecture
-repository. It has [`jme-doc-upstream-stub`](../jme-doc-upstream-stub) instead: a service of the example that
-answers the `/docs-api` of one over a fixed landscape of two systems, and demands the same semantic role the
-real thing does. Start it beside the other two:
+The doc service generates its documentation out of an architecture model and draws its runtime views out of
+what a reaction observer saw happening, and this example runs neither of those services. It has
+[`jme-doc-upstream-stub`](../jme-doc-upstream-stub) instead: one service of the example answering for both -
+the `/docs-api` of an architecture repository and the graph API of a reaction observer - over a fixed landscape
+of two systems, each behind the semantic role the real thing requires. Start it beside the other two:
 
 ```shell
 ./mvnw spring-boot:run -pl jme-doc-upstream-stub -Dspring-boot.run.profiles=local
 ```
 
-The doc service reads it as the environment `dev` - see `jeap.doc.archrepo.environments` in
-[`application-local.yml`](../jme-doc-service/src/main/resources/application-local.yml). Nothing is imported on
-its own schedule while developing: ask for it, and the import asks for every part of the site in turn.
+The doc service reads it as all four environments of the site - see `jeap.doc.archrepo.environments` and
+`jeap.doc.reactions.environments` in
+[`application-local.yml`](../jme-doc-service/src/main/resources/application-local.yml), where each environment
+names this one stub twice, so that every tree of the site carries the landscape and its runtime views. The
+reactions are steps of the architecture import rather than a job of their own, and they run after the model:
+an observed name means nothing until it has been resolved against the model. Nothing is imported on its own
+schedule while developing: ask for it, and the import asks for every part of the site in turn.
 
 ## Telling the service where Node is
 
