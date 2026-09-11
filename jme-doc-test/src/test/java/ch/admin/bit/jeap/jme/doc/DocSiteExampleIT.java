@@ -36,6 +36,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -178,6 +180,11 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * number is part of arc42 and belongs in the folder, not in a link.
      */
     private static final String UPLOADED_CHAPTER_SEGMENT = "intro";
+
+    /** The picture of the uploaded page as the site renders it, found by what the page calls it. */
+    private static final Pattern UPLOADED_PICTURE =
+            Pattern.compile("<img[^>]*alt=\"" + Pattern.quote(DocumentationSets.IMAGE_ALT) + "\"[^>]*>");
+    private static final Pattern SOURCE = Pattern.compile("\\ssrc=\"([^\"]+)\"");
 
     /** What the site of this example calls itself - configured in the instance, and read back off the page. */
     private static final String SITE_TITLE = "JME Documentation";
@@ -729,6 +736,11 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * <b>Every environment tree gets it.</b> An upload names no environment - what a team writes is about the
      * thing rather than about a stage - so the page is read under the main environment at the root as well as
      * under one of the others.
+     * <p>
+     * <b>And the picture beside it.</b> A set is Markdown and the images its pages show, and an image takes
+     * another way through the service: it is not a page, it is stored and written byte for byte, and Docusaurus
+     * renames it after its content and publishes it under {@code assets/} - a directory every part of the site
+     * shares. So it is followed from the page to the file the site serves, and compared with what was uploaded.
      */
     @Test
     @Order(18)
@@ -758,6 +770,29 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
                     .body(containsString("Uploaded"))
                     .body(containsString(DocumentationSets.SOURCE_REVISION));
         }
+
+        assertThePictureOfTheUploadedPageIsServed();
+    }
+
+    private static void assertThePictureOfTheUploadedPageIsServed() {
+        URI page = URI.create(DOC_BASE_URL + "/" + ENVIRONMENT + uploadedPageOf(DocumentationSets.COMPONENT));
+        String html = given().when().get(page).then().statusCode(200).extract().asString();
+
+        Matcher picture = UPLOADED_PICTURE.matcher(html);
+        assertThat(picture.find()).describedAs("the page shows the picture uploaded beside it").isTrue();
+        Matcher source = SOURCE.matcher(picture.group());
+        assertThat(source.find()).describedAs("the picture has a source: %s", picture.group()).isTrue();
+        assertThat(source.group(1))
+                .describedAs("the picture is published as a file of its own rather than inlined into the page")
+                .doesNotStartWith("data:");
+
+        byte[] served = given().when()
+                .get(page.resolve(source.group(1)))
+                .then()
+                .statusCode(200)
+                .contentType(containsString("image/png"))
+                .extract().asByteArray();
+        assertThat(served).isEqualTo(DocumentationSets.image());
     }
 
     /**

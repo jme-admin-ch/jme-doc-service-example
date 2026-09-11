@@ -17,6 +17,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A component the architecture model does not hold is published from its upload alone**, which is what lets a
   team document something before anything of it is deployed. The second set the test uploads documents
   `jme-doc-upstream-stub` - a module of this example that is deployed nowhere, so no importer can see it.
+- **The uploaded set carries a picture beside its page**, and the test follows it from the published page to the
+  file the site serves and compares the bytes. It is over the 10 KB below which Docusaurus inlines an image into
+  the page, so it is published as a file of its own - the way a screenshot goes.
 - **An upload whose set would not be published is refused** with `422` and `STRUCTURE_INVALID`, carrying the
   same findings the advisory validation endpoint answers with. The structure endpoint now saves a round trip
   rather than being the only thing that keeps a misfiled page off the site.

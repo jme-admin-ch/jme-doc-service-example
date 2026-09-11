@@ -1,5 +1,7 @@
 package ch.admin.bit.jeap.jme.doc;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -8,6 +10,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -41,6 +44,25 @@ final class DocumentationSets {
     static final String PAGE_TITLE = "Why we built this";
     static final String PAGE_TEXT =
             "Because the documentation of a component belongs next to the code of that component.";
+
+    /**
+     * A picture beside the page, which the page shows. It is filed in the same chapter folder, because that is
+     * where the site generator writes it: next to the page that links to it.
+     */
+    static final String IMAGE_NAME = "what-an-upload-carries.png";
+
+    /** What the page calls the picture, which is how the published page is searched for it. */
+    static final String IMAGE_ALT = "A picture uploaded beside the page";
+
+    /**
+     * The picture: noise, so that it does not compress, and large enough to stay a file.
+     * <p>
+     * <b>Over 10 KB on purpose.</b> Docusaurus inlines a smaller image into the page as a data URL, and an
+     * inlined picture is never published as a file of its own - which is the way a screenshot goes, and the
+     * way this is here to cover. The seed is fixed, so it is the same picture on every run and the bytes the
+     * site serves can be compared with the ones uploaded.
+     */
+    private static final byte[] IMAGE = picture();
 
     /** The commit the upload names, which the provenance under the published page shows. */
     static final String SOURCE_REVISION = "9a1c2f8";
@@ -93,7 +115,7 @@ final class DocumentationSets {
      * the documentation folder, written with {@code /}, directories not listed.
      */
     static List<String> paths() {
-        return List.of(CHAPTER + "/" + PAGE_NAME + ".md");
+        return List.of(CHAPTER + "/" + PAGE_NAME + ".md", CHAPTER + "/" + IMAGE_NAME);
     }
 
     /**
@@ -121,7 +143,7 @@ final class DocumentationSets {
         try (ZipOutputStream zip = new ZipOutputStream(bytes)) {
             for (String path : paths) {
                 zip.putNextEntry(new ZipEntry(path));
-                zip.write(page().getBytes(StandardCharsets.UTF_8));
+                zip.write(path.endsWith(".md") ? page().getBytes(StandardCharsets.UTF_8) : image());
                 zip.closeEntry();
             }
         } catch (IOException e) {
@@ -136,6 +158,28 @@ final class DocumentationSets {
      * upload's parameters, and a page may not claim any of it itself.
      */
     private static String page() {
-        return "# " + PAGE_TITLE + "\n\n" + PAGE_TEXT + "\n";
+        return "# " + PAGE_TITLE + "\n\n" + PAGE_TEXT + "\n\n![" + IMAGE_ALT + "](./" + IMAGE_NAME + ")\n";
+    }
+
+    /** The bytes of {@link #IMAGE_NAME}, as uploaded. */
+    static byte[] image() {
+        return IMAGE.clone();
+    }
+
+    private static byte[] picture() {
+        BufferedImage picture = new BufferedImage(96, 96, BufferedImage.TYPE_INT_RGB);
+        Random noise = new Random(42); // NOSONAR a fixed seed on purpose: the same picture on every run
+        for (int x = 0; x < picture.getWidth(); x++) {
+            for (int y = 0; y < picture.getHeight(); y++) {
+                picture.setRGB(x, y, noise.nextInt(0x1000000));
+            }
+        }
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try {
+            ImageIO.write(picture, "png", bytes);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return bytes.toByteArray();
     }
 }
