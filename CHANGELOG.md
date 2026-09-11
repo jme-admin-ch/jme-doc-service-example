@@ -32,7 +32,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   only copy of what a team wrote, and a set that is a year old is a component nobody has had to touch.
 
 ### Dependencies
-- **ch.admin.bit.jeap:jeap-doc-service**: 2.1.0 → 2.2.0-feature-JEAP-7413-rebased-SNAPSHOT
+- **ch.admin.bit.jeap:jeap-doc-service**: 2.1.0 → 2.2.0 (minor)
 
 ## [4.2.0] - 2026-09-11
 
