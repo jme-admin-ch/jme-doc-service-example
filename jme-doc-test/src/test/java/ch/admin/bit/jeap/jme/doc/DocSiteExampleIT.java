@@ -184,7 +184,8 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     /** The picture of the uploaded page as the site renders it, found by what the page calls it. */
     private static final Pattern UPLOADED_PICTURE =
             Pattern.compile("<img[^>]*alt=\"" + Pattern.quote(DocumentationSets.IMAGE_ALT) + "\"[^>]*>");
-    private static final Pattern SOURCE = Pattern.compile("\\ssrc=\"([^\"]+)\"");
+    /** Quoted or not: the published HTML is minified, and a value without spaces loses its quotes. */
+    private static final Pattern SOURCE = Pattern.compile("\\ssrc=(?:\"([^\"]+)\"|([^\\s\"'>]+))");
 
     /** What the site of this example calls itself - configured in the instance, and read back off the page. */
     private static final String SITE_TITLE = "JME Documentation";
@@ -782,12 +783,13 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
         assertThat(picture.find()).describedAs("the page shows the picture uploaded beside it").isTrue();
         Matcher source = SOURCE.matcher(picture.group());
         assertThat(source.find()).describedAs("the picture has a source: %s", picture.group()).isTrue();
-        assertThat(source.group(1))
+        String location = source.group(1) != null ? source.group(1) : source.group(2);
+        assertThat(location)
                 .describedAs("the picture is published as a file of its own rather than inlined into the page")
                 .doesNotStartWith("data:");
 
         byte[] served = given().when()
-                .get(page.resolve(source.group(1)))
+                .get(page.resolve(location))
                 .then()
                 .statusCode(200)
                 .contentType(containsString("image/png"))
