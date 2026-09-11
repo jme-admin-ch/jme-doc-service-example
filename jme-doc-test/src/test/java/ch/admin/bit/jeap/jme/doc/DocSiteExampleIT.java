@@ -754,7 +754,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
                     // The provenance: the label the site template renders for a page whose doc_status is
                     // 'custom' - against the "Generated page" of everything the model produced - and the
                     // commit the upload named, which is where the page is to be edited.
-                    .body(containsString("Written by the team"))
+                    .body(containsString("Uploaded"))
                     .body(containsString(DocumentationSets.SOURCE_REVISION));
         }
     }
@@ -774,7 +774,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
                 .then()
                 .statusCode(200)
                 .body(containsString(DocumentationSets.PAGE_TEXT))
-                .body(containsString("Written by the team"));
+                .body(containsString("Uploaded"));
 
         given().baseUri(DOC_BASE_URL)
                 .when()
