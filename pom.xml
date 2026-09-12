@@ -33,7 +33,7 @@
     </parent>
 
     <artifactId>jme-doc-service-example</artifactId>
-    <version>5.0.0-SNAPSHOT</version>
+    <version>5.1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <properties>
@@ -41,7 +41,7 @@
         <maven.compiler.release>25</maven.compiler.release>
         <jeap-doc-service.version>2.2.0</jeap-doc-service.version>
         <jeap-oauth-mock-server.version>10.10.0</jeap-oauth-mock-server.version>
-        <jme-spring-boot-integration-test.version>6.4.1</jme-spring-boot-integration-test.version>
+        <jme-spring-boot-integration-test.version>6.5.0</jme-spring-boot-integration-test.version>
         <!-- Not managed by jeap-spring-boot-parent. It has to agree with the browser in the build
              image, and it is the version the doc service's own browser tests use. -->
         <playwright.version>1.62.0</playwright.version>
