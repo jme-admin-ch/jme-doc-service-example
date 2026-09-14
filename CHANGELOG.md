@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.1.0] - 2026-09-14
+
+### Added
+- Uploaded HTML microsites: the upload rules, serving from the bucket with the sandbox, and the files on the object storage.
+- The microsite in the browser: framed in the site's navigation, opaque origin, storage through the shim, `?path=` and the height message.
+- Raw HTML in an uploaded page shown as text, and an uploaded SVG served sandboxed.
+- System and library documentation uploaded and published beside the component documentation.
+- Search over uploaded Markdown and microsite content, narrowed by the source chips.
+- Removing a microsite: its files gone at once, its page with the next build.
+
+### Changed
+- Runs against a 3.1.0 snapshot of the doc service, which publishes uploaded HTML as microsites.
+
 ## [6.0.0] - 2026-09-13
 
 ### Dependencies
