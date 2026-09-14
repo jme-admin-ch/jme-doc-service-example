@@ -940,7 +940,9 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
             assertThat(microsite.evaluate("() => window.STORAGE_WORKED"))
                     .describedAs("the shim ran before the microsite's own script").isEqualTo(true);
 
+            // In this thread: Playwright may only be called from the thread that created it, and blocks elsewhere.
             await().atMost(Duration.ofSeconds(15))
+                    .pollInSameThread()
                     .pollInterval(Duration.ofMillis(250))
                     .until(() -> ((Number) frame.evaluate("f => f.getBoundingClientRect().height")).intValue()
                                  == DocumentationSets.MICROSITE_REPORTED_HEIGHT);
@@ -1001,8 +1003,12 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * <b>The search finds what teams uploaded</b>, the text of a microsite included - which reaches the index
      * only because it was extracted from the bundle when it was uploaded, since a microsite's pages are in no
      * content tree. One word is on the uploaded Markdown page and inside the microsite and on no generated
-     * page, so it finds exactly the two kinds; and <b>the chips narrow by kind</b>: with uploaded Markdown
-     * turned off, the microsite is what is left, and the URL carries the selection.
+     * page; and <b>the chips narrow by kind</b>: with uploaded Markdown turned off, the Markdown page is gone
+     * and the microsite is still there, and the URL carries the selection.
+     * <p>
+     * <b>Which hits, not how many.</b> The containers of the example keep their data between runs and are
+     * shared with {@code DocServiceExampleIT}, whose microsites carry the same word - so the pages of this suite
+     * are looked for among the hits rather than counted.
      * <p>
      * The index is built at the end of the build pass, after the pages are published, so it is waited for.
      */
@@ -1010,23 +1016,28 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     @Order(25)
     void theSearchFindsUploadedDocumentationAndTheChipsNarrowItByKind() {
         String query = "/search/?q=" + DocumentationSets.ON_BOTH_UPLOADED_KINDS;
+        String markdownPage = SYSTEM_TREE + "constraints/" + DocumentationSets.RAW_HTML_PAGE_NAME + "/";
+        String micrositePage = micrositePageOf(DocumentationSets.MICROSITE_TOPIC);
         await().atMost(BUILD_TIMEOUT)
+                .pollInSameThread()
                 .pollInterval(Duration.ofSeconds(3))
-                .until(() -> hitCountOn(query) == 2);
+                .until(() -> {
+                    List<String> hits = hitsOn(query);
+                    return hits.stream().anyMatch(href -> href.endsWith(markdownPage))
+                           && hits.stream().anyMatch(href -> href.endsWith(micrositePage));
+                });
 
         try (BrowserContext context = browser.newContext()) {
             Page page = open(context, query);
-            Locator hits = searchResultsOf(page);
-            PlaywrightAssertions.assertThat(hits).hasCount(2);
+            PlaywrightAssertions.assertThat(hitTo(page, markdownPage)).hasCount(1);
+            PlaywrightAssertions.assertThat(hitTo(page, micrositePage)).hasCount(1);
 
             chip(page, "Uploaded MD").click();
 
             page.waitForURL(url -> url.contains("source=generated%2Chtml"));
             PlaywrightAssertions.assertThat(chip(page, "Uploaded MD")).hasAttribute("aria-pressed", "false");
-            PlaywrightAssertions.assertThat(hits).hasCount(1);
-            PlaywrightAssertions.assertThat(page.getByRole(AriaRole.LIST,
-                            new Page.GetByRoleOptions().setName("Search results")))
-                    .containsText(DocumentationSets.MICROSITE_LABEL);
+            PlaywrightAssertions.assertThat(hitTo(page, markdownPage)).hasCount(0);
+            PlaywrightAssertions.assertThat(hitTo(page, micrositePage)).hasCount(1);
         }
     }
 
@@ -1037,18 +1048,20 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     @Test
     @Order(26)
     void aHitInsideTheMicrositeOpensItsFrameAtTheFileTheWordIsOn() {
+        String query = "/search/?q=" + DocumentationSets.ONLY_INSIDE_THE_MICROSITE;
+        // This suite's microsite, among the ones DocServiceExampleIT left with the same pages.
+        String hitInside = micrositePageOf(DocumentationSets.MICROSITE_TOPIC) + "?path="
+                           + DocumentationSets.MICROSITE_NESTED_PAGE;
         await().atMost(BUILD_TIMEOUT)
+                .pollInSameThread()
                 .pollInterval(Duration.ofSeconds(3))
-                .until(() -> hitCountOn("/search/?q=" + DocumentationSets.ONLY_INSIDE_THE_MICROSITE) > 0);
+                .until(() -> hitsOn(query).stream().anyMatch(href -> href.endsWith(hitInside)));
 
         try (BrowserContext context = browser.newContext()) {
-            Page page = open(context, "/" + ENVIRONMENT + "/");
+            Page page = open(context, query);
 
-            Locator box = page.locator("input.navbar__search-input").first();
-            box.click();
-            page.keyboard().type(DocumentationSets.ONLY_INSIDE_THE_MICROSITE, new Keyboard.TypeOptions().setDelay(60));
-            Locator hit = page.getByRole(AriaRole.OPTION).first();
-            PlaywrightAssertions.assertThat(hit).containsText(DocumentationSets.MICROSITE_LABEL);
+            Locator hit = hitTo(page, hitInside);
+            PlaywrightAssertions.assertThat(hit).isVisible();
             hit.click();
 
             page.waitForURL("**?path=" + DocumentationSets.MICROSITE_NESTED_PAGE);
@@ -1283,18 +1296,27 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
                 .getByRole(AriaRole.BUTTON, new Locator.GetByRoleOptions().setName(label)).first();
     }
 
-    /** How many results the search page answers for a query now, or zero while there are none yet. */
-    private static int hitCountOn(String query) {
+    /**
+     * Where the results the search page answers for a query now lead, or nothing while there are none yet. It
+     * drives the browser, so an await polling it has to poll in this thread: Playwright may only be called from
+     * the thread that created it.
+     */
+    private static List<String> hitsOn(String query) {
         try (BrowserContext context = browser.newContext()) {
             Page page = open(context, query);
             Locator hits = searchResultsOf(page);
             try {
                 hits.first().waitFor(new Locator.WaitForOptions().setTimeout(5_000));
             } catch (TimeoutError nothingYet) {
-                return 0;
+                return List.of();
             }
-            return hits.count();
+            return hits.all().stream().map(hit -> hit.getAttribute("href")).toList();
         }
+    }
+
+    /** The result on the search page that leads to the given route - whatever else the site holds. */
+    private static Locator hitTo(Page page, String route) {
+        return searchResultsOf(page).and(page.locator("a[href$='" + route + "']"));
     }
 
     /** Whether a build of the part newer than the given id has succeeded, whatever asked for it. */
