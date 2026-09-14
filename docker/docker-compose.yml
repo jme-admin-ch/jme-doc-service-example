@@ -78,7 +78,7 @@ services:
   # bucket; this is where they can be tried first. See
   # https://github.com/jeap-admin-ch/jeap-doc-service/blob/main/docs/operating-the-bucket.md
   jme-doc-objectstorage-init:
-    image: amazon/aws-cli:2.36.44
+    image: amazon/aws-cli:2.36.45
     depends_on:
       jme-doc-objectstorage:
         condition: service_healthy
