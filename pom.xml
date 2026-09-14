@@ -39,7 +39,7 @@
     <properties>
         <java.version>25</java.version>
         <maven.compiler.release>25</maven.compiler.release>
-        <jeap-doc-service.version>3.1.0-feature-JEAP-7428-rebase-SNAPSHOT</jeap-doc-service.version>
+        <jeap-doc-service.version>3.1.0</jeap-doc-service.version>
         <jeap-oauth-mock-server.version>11.0.0</jeap-oauth-mock-server.version>
         <jme-spring-boot-integration-test.version>6.6.0</jme-spring-boot-integration-test.version>
         <!-- Not managed by jeap-spring-boot-parent. It has to agree with the browser in the build

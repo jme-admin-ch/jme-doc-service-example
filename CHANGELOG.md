@@ -16,7 +16,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Removing a microsite: its files gone at once, its page with the next build.
 
 ### Changed
-- Runs against a 3.1.0 snapshot of the doc service, which publishes uploaded HTML as microsites.
+- Runs against doc service 3.1.0, which publishes uploaded HTML as microsites.
 
 ## [6.0.0] - 2026-09-13
 
