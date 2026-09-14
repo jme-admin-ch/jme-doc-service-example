@@ -12,6 +12,8 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectTaggingRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.Tag;
 
 import java.io.ByteArrayInputStream;
@@ -21,6 +23,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -29,11 +33,16 @@ import java.util.stream.Collectors;
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.awaitility.Awaitility.await;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.nullValue;
+import static org.hamcrest.Matchers.startsWith;
 
 /**
  * Uploads documentation to the doc service of this example, with a token of the OAuth mock server.
@@ -77,6 +86,16 @@ class DocServiceExampleIT extends BootServiceSpringIntegrationTestBase {
      */
     private static final String UPLOAD_TAG_KEY = "jeap-doc-content";
     private static final String UPLOAD_TAG_VALUE = "upload";
+
+    /**
+     * What an accepted set becomes lies below this prefix, tagged {@code current} - which no lifecycle rule
+     * selects, because it is the only copy there is.
+     */
+    private static final String CURRENT_PREFIX = "current/";
+    private static final String CURRENT_TAG_VALUE = "current";
+
+    /** The attribute of the one script the service adds to every page of a microsite. */
+    private static final String MICROSITE_SHIM_MARKER = "data-jeap-doc-microsite-shim";
 
     @Value("${jme-doc-test.objectstorage.endpoint-url}")
     private URI objectStorageEndpoint;
@@ -471,6 +490,197 @@ class DocServiceExampleIT extends BootServiceSpringIntegrationTestBase {
                 .post(VALIDATION_PATH)
                 .then()
                 .statusCode(401);
+    }
+
+    /**
+     * <b>An HTML set is a built site rather than chapters of pages</b>, so it follows no template's allowlist:
+     * what is refused is what has no business in documentation and every business on a workstation. The
+     * upload refuses it with the findings, having stored nothing - exactly as it refuses a misfiled Markdown
+     * page.
+     */
+    @Test
+    void aMicrositeCarryingAnExecutableIsRefused() {
+        List<String> paths = new ArrayList<>(DocumentationSets.micrositePaths());
+        paths.add("tools/install.exe");
+
+        uploadMicrosite(uploadToken(), DocumentationSets.micrositeParameters("with-an-executable"), paths)
+                .then()
+                .statusCode(422)
+                .body("code", equalTo("STRUCTURE_INVALID"))
+                .body("findings.find { it.code == 'FORBIDDEN_EXTENSION' }.path", equalTo("tools/install.exe"));
+    }
+
+    /**
+     * One name at the root of a microsite is the service's own: the text of its pages is extracted when it is
+     * uploaded and stored beside its files under that name, so a set that brings the file would have it
+     * silently overwritten.
+     */
+    @Test
+    void aMicrositeCarryingTheServicesOwnSearchTextIsRefused() {
+        List<String> paths = new ArrayList<>(DocumentationSets.micrositePaths());
+        paths.add(DocumentationSets.MICROSITE_SEARCH_TEXT);
+
+        uploadMicrosite(uploadToken(), DocumentationSets.micrositeParameters("with-a-search-text"), paths)
+                .then()
+                .statusCode(422)
+                .body("findings.find { it.code == 'RESERVED_PATH' }.path",
+                      equalTo(DocumentationSets.MICROSITE_SEARCH_TEXT));
+    }
+
+    /** A microsite is opened at its entry point, so a set without one would be a frame showing nothing. */
+    @Test
+    void aMicrositeWithoutAnEntryPointIsRefused() {
+        uploadMicrosite(uploadToken(), DocumentationSets.micrositeParameters("without-an-entry-point"),
+                        List.of(DocumentationSets.MICROSITE_NESTED_PAGE))
+                .then()
+                .statusCode(422)
+                .body("findings.code", hasItem("MISSING_ENTRY_POINT"));
+    }
+
+    /** The location is a chapter of the template, and one arc42 does not have is nowhere to embed it. */
+    @Test
+    void aMicrositeEmbeddedInAChapterTheTemplateDoesNotHaveIsRefused() {
+        Map<String, String> parameters = DocumentationSets.micrositeParameters("in-no-chapter");
+        parameters.put("location", "13-appendix");
+
+        uploadMicrosite(uploadToken(), parameters, DocumentationSets.micrositePaths())
+                .then()
+                .statusCode(422)
+                .body("findings.code", hasItem("UNKNOWN_LOCATION"));
+    }
+
+    /** A microsite has no pages to take a title from, so the label is the only thing that can name it. */
+    @Test
+    void aMicrositeWithoutALabelNamesTheMissingParameter() {
+        Map<String, String> parameters = DocumentationSets.micrositeParameters("without-a-label");
+        parameters.remove("label");
+
+        uploadMicrosite(uploadToken(), parameters, DocumentationSets.micrositePaths())
+                .then()
+                .statusCode(400)
+                .body("code", equalTo("MISSING_PARAMETER"));
+    }
+
+    /**
+     * The other way round: a Markdown set is written into the chapters its folders name, so a location passed
+     * with one says the workflow configuration mixed up the two kinds of documentation.
+     */
+    @Test
+    void aMarkdownUploadNamingALocationIsRejected() {
+        Map<String, String> parameters = documentationSetParameters();
+        parameters.put("location", DocumentationSets.MICROSITE_LOCATION);
+
+        upload(UUID.randomUUID(), uploadToken(), parameters)
+                .then()
+                .statusCode(400)
+                .body("code", equalTo("INVALID_PARAMETER_VALUE"));
+    }
+
+    /**
+     * <b>A microsite is served straight from the bucket, file by file, as soon as it is accepted</b> - there
+     * is no build between the upload and its files, only the page that frames it waits for one. What it is
+     * served with is what contains it: a sandbox on every response, so a file opened directly is as isolated as
+     * a framed one; the one script the service adds; the uploaded bytes otherwise untouched; and a file that is
+     * not a page downloaded rather than rendered.
+     * <p>
+     * <b>{@code Access-Control-Allow-Origin} belongs to the microsites alone.</b> A framed microsite fetches
+     * its own files from an opaque origin, which makes those cross-origin requests - and nothing else this
+     * service answers may be one.
+     */
+    @Test
+    void anAcceptedMicrositeIsServedAtOnceInsideItsSandbox() {
+        String topic = "served-at-once";
+        uploadMicrosite(uploadToken(), DocumentationSets.micrositeParameters(topic),
+                        DocumentationSets.micrositePaths())
+                .then()
+                .statusCode(201);
+        String microsite = DOC_BASE_URL + micrositePathOf(topic);
+
+        // The prefix a request resolves to is cached for a few seconds, so the first answer is waited for.
+        await().atMost(Duration.ofSeconds(30))
+                .pollInterval(Duration.ofSeconds(1))
+                .until(() -> given().when().get(microsite).getStatusCode() == 200);
+
+        given().when()
+                .get(microsite)
+                .then()
+                .statusCode(200)
+                .contentType(containsString("text/html"))
+                .header("Content-Security-Policy", startsWith("sandbox allow-scripts"))
+                .header("Content-Security-Policy", not(containsString("allow-same-origin")))
+                .header("Access-Control-Allow-Origin", "*")
+                .body(containsString(MICROSITE_SHIM_MARKER))
+                .body(containsString(DocumentationSets.MICROSITE_HEADING));
+
+        given().when()
+                .get(microsite + "data/properties.json")
+                .then()
+                .statusCode(200)
+                .header("Content-Disposition", "attachment")
+                .body(not(containsString(MICROSITE_SHIM_MARKER)));
+
+        given().when()
+                .get(microsite + "pages/missing.html")
+                .then()
+                .statusCode(404)
+                .header("Content-Security-Policy", startsWith("sandbox"))
+                .body(containsString("has no such file"));
+
+        given().baseUri(DOC_BASE_URL)
+                .auth().oauth2(uploadToken())
+                .queryParam("system", SYSTEM)
+                .when()
+                .get(uploadPath(UUID.randomUUID()))
+                .then()
+                .header("Access-Control-Allow-Origin", nullValue());
+    }
+
+    /**
+     * Where a microsite ends up: one object per file under a {@code files/} prefix of its set, below the
+     * current documentation - and tagged as that, because the current documentation is the only copy there is
+     * and no lifecycle rule may expire it.
+     */
+    @Test
+    void theFilesOfAMicrositeLieInTheObjectStorageOneObjectEach() {
+        String topic = "one-object-per-file";
+        uploadMicrosite(uploadToken(), DocumentationSets.micrositeParameters(topic),
+                        DocumentationSets.micrositePaths())
+                .then()
+                .statusCode(201);
+
+        // The set's own segment of the key: its format, its template, and where it is embedded.
+        String setSegment = "/html/arc42/" + DocumentationSets.MICROSITE_LOCATION + "-" + topic + "/";
+        try (S3Client objectStorage = objectStorage()) {
+            List<String> keys = objectStorage.listObjectsV2Paginator(ListObjectsV2Request.builder()
+                            .bucket(documentationBucket).prefix(CURRENT_PREFIX).build())
+                    .contents().stream()
+                    .map(S3Object::key)
+                    .filter(key -> key.contains(setSegment) && key.contains("/files/"))
+                    .toList();
+
+            assertThat(keys).allMatch(key -> key.startsWith(CURRENT_PREFIX));
+            for (String path : DocumentationSets.micrositePaths()) {
+                assertThat(keys).anyMatch(key -> key.endsWith("/files/" + path));
+            }
+
+            String entryPoint = keys.stream().filter(key -> key.endsWith("/files/index.html")).findFirst()
+                    .orElseThrow();
+            List<Tag> tags = objectStorage.getObjectTagging(GetObjectTaggingRequest.builder()
+                    .bucket(documentationBucket).key(entryPoint).build()).tagSet();
+            assertThat(tags).extracting(Tag::key, Tag::value)
+                    .containsExactly(tuple(UPLOAD_TAG_KEY, CURRENT_TAG_VALUE));
+        }
+    }
+
+    /** Where a microsite of the component is served, below the root of the site. */
+    private static String micrositePathOf(String topic) {
+        return "/microsites/" + SYSTEM + "/components/" + DocumentationSets.COMPONENT + "/arc42/"
+               + DocumentationSets.MICROSITE_LOCATION + "/" + topic + "/";
+    }
+
+    private static Response uploadMicrosite(String accessToken, Map<String, String> parameters,
+                                            List<String> paths) {
+        return upload(UUID.randomUUID(), accessToken, parameters, DocumentationSets.micrositeBundleOf(paths));
     }
 
     private static Response validate(String accessToken, List<String> paths) {

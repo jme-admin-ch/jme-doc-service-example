@@ -4,10 +4,12 @@ import ch.admin.bit.jeap.jme.test.BootServiceSpringIntegrationTestBase;
 import com.microsoft.playwright.Browser;
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.BrowserType;
+import com.microsoft.playwright.Frame;
 import com.microsoft.playwright.Keyboard;
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
+import com.microsoft.playwright.TimeoutError;
 import com.microsoft.playwright.assertions.PlaywrightAssertions;
 import com.microsoft.playwright.options.AriaRole;
 import io.restassured.path.json.JsonPath;
@@ -142,6 +144,10 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     private static final String IMPORTS_PATH = "/api/architecture/imports";
     private static final String IMPORT_STATE_PATH = "/api/architecture/environments";
     private static final String UPLOAD_PATH = "/api/uploads/docs/";
+    private static final String REMOVE_SETS_PATH = "/api/docs/custom/sets";
+
+    /** The tree of the system the uploads of this suite document, below the tree of an environment. */
+    private static final String SYSTEM_TREE = "/systems/" + DocumentationSets.SYSTEM + "/system-architecture/";
 
     /** The three steps that read the reaction observer rather than the architecture repository. */
     private static final List<String> REACTION_KINDS =
@@ -702,9 +708,13 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * stubbed landscape holds, so its uploaded chapter stands beside the chapters the generator writes for it.
      * The other documents a component of the same system that <i>no</i> importer has ever seen -
      * {@code jme-doc-upstream-stub} is a module of this example and is deployed nowhere - and it is published
-     * all the same, out of the upload alone. Both are uploaded before anything is waited for, because they
-     * belong to one part and the requests collapse into one build - when the second arrives before the first
-     * build has started, which is not guaranteed, so each page is waited for on its own.
+     * all the same, out of the upload alone.
+     * <p>
+     * <b>And the other shapes a set comes in</b>, which the steps after this one read: the system's own
+     * documentation, a library of the system, and a microsite - HTML a build emitted, published as it is. All
+     * of them are uploaded before anything is waited for, because they belong to one part and the requests
+     * collapse into one build - when they arrive before the first build has started, which is not guaranteed,
+     * so each page is waited for on its own.
      */
     @Test
     @Order(17)
@@ -713,6 +723,10 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
 
         upload(DocumentationSets.parameters());
         upload(DocumentationSets.parametersFor(DocumentationSets.COMPONENT_OUTSIDE_THE_MODEL));
+        upload(DocumentationSets.systemParameters(), DocumentationSets.systemBundle());
+        upload(DocumentationSets.libraryParameters(), DocumentationSets.libraryBundle());
+        upload(DocumentationSets.micrositeParameters(DocumentationSets.MICROSITE_TOPIC),
+               DocumentationSets.micrositeBundle());
 
         JsonPath build = await().atMost(BUILD_TIMEOUT)
                 .pollInterval(Duration.ofSeconds(1))
@@ -830,13 +844,265 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     }
 
     /**
+     * The system's own documentation, and the one thing about an uploaded page only a browser can tell: <b>raw
+     * HTML in it is shown as text and never applied</b>. The site's policy allows inline script, because the
+     * colour mode needs it, so what keeps an uploaded {@code <script>} from running on this origin is that it
+     * never becomes markup - and a build that let it through would be just as green.
+     * <p>
+     * <b>And the picture beside it is served sandboxed.</b> An SVG carries script, and opened on its own it
+     * would run on this origin; served with {@code sandbox} in its policy, it runs on none.
+     */
+    @Test
+    @Order(20)
+    void theSystemsOwnPageShowsItsRawHtmlAsTextAndServesItsSvgSandboxed() {
+        String route = "/" + ENVIRONMENT + SYSTEM_TREE + "constraints/" + DocumentationSets.RAW_HTML_PAGE_NAME + "/";
+        awaitServed(route);
+
+        try (BrowserContext context = browser.newContext()) {
+            Page page = open(context, route);
+
+            PlaywrightAssertions.assertThat(page.getByText(DocumentationSets.RAW_SCRIPT)).isVisible();
+            PlaywrightAssertions.assertThat(page.getByText(DocumentationSets.RAW_STYLE)).isVisible();
+            assertThat(page.evaluate("() => window.UPLOADED_SCRIPT_RAN")).describedAs("the uploaded script ran")
+                    .isNull();
+            assertThat(page.evaluate("() => getComputedStyle(document.body).outlineWidth"))
+                    .describedAs("the uploaded style was applied").isNotEqualTo("7px");
+        }
+
+        URI pageUri = URI.create(DOC_BASE_URL + route);
+        String html = given().when().get(pageUri).then().statusCode(200).extract().asString();
+        Matcher picture = Pattern.compile("<img[^>]*alt=\"" + Pattern.quote(DocumentationSets.SVG_ALT) + "\"[^>]*>")
+                .matcher(html);
+        assertThat(picture.find()).describedAs("the page shows the SVG uploaded beside it").isTrue();
+        Matcher source = SOURCE.matcher(picture.group());
+        assertThat(source.find()).isTrue();
+        String location = source.group(1) != null ? source.group(1) : source.group(2);
+        assertThat(location).describedAs("the SVG is published as a file of its own").doesNotStartWith("data:");
+
+        given().when()
+                .get(pageUri.resolve(location))
+                .then()
+                .statusCode(200)
+                .header("Content-Security-Policy", containsString("sandbox"));
+    }
+
+    /**
+     * A library, which no architecture model holds: its tree stands beside the components of its system, and
+     * the chapter its team wrote is in it - out of the upload alone.
+     */
+    @Test
+    @Order(21)
+    void aLibraryIsPublishedBesideTheComponentsOfItsSystem() {
+        String library = "/" + ENVIRONMENT + SYSTEM_TREE + "building-block-view/libraries/"
+                         + DocumentationSets.LIBRARY + "/";
+        String page = library + "library-architecture/glossary/" + DocumentationSets.LIBRARY_PAGE_NAME + "/";
+        awaitServed(page);
+
+        given().baseUri(DOC_BASE_URL)
+                .when()
+                .get(page)
+                .then()
+                .statusCode(200)
+                .body(containsString(DocumentationSets.LIBRARY_PAGE_TEXT))
+                .body(containsString("Uploaded"));
+        given().baseUri(DOC_BASE_URL).when().get(library).then().statusCode(200);
+    }
+
+    /**
+     * <b>A microsite is served inside the site's own navigation</b>: a page generated into the chapter its
+     * upload named, with the navbar and the sidebar around a frame. The frame is sandboxed without
+     * {@code allow-same-origin}, which is what gives the documentation inside it an origin of its own - and
+     * the probe page of the fixture writes down what the browser let it do: its origin is opaque, the page
+     * around it is out of reach, and storage works all the same, through the one script the service injects.
+     * <p>
+     * <b>And a microsite that says how tall it is gets a frame that tall.</b> The probe reports a height, and
+     * the page grows the frame to it rather than leaving the reader a box with a scrollbar of its own.
+     */
+    @Test
+    @Order(22)
+    void theMicrositeIsFramedInsideTheSitesNavigationWithAnOriginOfItsOwn() {
+        String route = "/" + ENVIRONMENT + micrositePageOf(DocumentationSets.MICROSITE_TOPIC);
+        awaitServed(route);
+
+        try (BrowserContext context = browser.newContext()) {
+            Page page = open(context, route);
+
+            PlaywrightAssertions.assertThat(page.locator("nav.navbar")).isVisible();
+            PlaywrightAssertions.assertThat(page.locator("nav.menu")).isVisible();
+            Locator frame = page.locator("iframe");
+            PlaywrightAssertions.assertThat(frame).isVisible();
+            assertThat(frame.getAttribute("sandbox")).contains("allow-scripts").doesNotContain("allow-same-origin");
+
+            Frame microsite = micrositeFrame(page);
+            PlaywrightAssertions.assertThat(microsite.locator("h1")).hasText(DocumentationSets.MICROSITE_HEADING);
+            assertThat(microsite.evaluate("() => window.ORIGIN")).isEqualTo("null");
+            assertThat(microsite.evaluate("() => window.REACHED_PARENT")).isEqualTo(false);
+            assertThat(microsite.evaluate("() => window.STORAGE_WORKED"))
+                    .describedAs("the shim ran before the microsite's own script").isEqualTo(true);
+
+            await().atMost(Duration.ofSeconds(15))
+                    .pollInterval(Duration.ofMillis(250))
+                    .until(() -> ((Number) frame.evaluate("f => f.getBoundingClientRect().height")).intValue()
+                                 == DocumentationSets.MICROSITE_REPORTED_HEIGHT);
+        }
+    }
+
+    /**
+     * <b>A link into a microsite</b> is the page's route plus {@code ?path=} - what a search hit inside one is,
+     * too - and it opens the file it names in the frame, with that file's own stylesheet.
+     */
+    @Test
+    @Order(23)
+    void aPathInTheQueryOpensThatPageOfTheMicrosite() {
+        try (BrowserContext context = browser.newContext()) {
+            Page page = open(context, "/" + ENVIRONMENT + micrositePageOf(DocumentationSets.MICROSITE_TOPIC)
+                                      + "?path=" + DocumentationSets.MICROSITE_NESTED_PAGE);
+
+            Frame microsite = micrositeFrame(page);
+            assertThat(microsite.url()).contains("/" + DocumentationSets.MICROSITE_NESTED_PAGE);
+            PlaywrightAssertions.assertThat(microsite.locator("h1"))
+                    .hasText(DocumentationSets.MICROSITE_NESTED_HEADING);
+            assertThat(microsite.locator("h1").evaluate("h1 => getComputedStyle(h1).color"))
+                    .isEqualTo(DocumentationSets.MICROSITE_NESTED_COLOUR);
+        }
+    }
+
+    /**
+     * What the site itself is served with, now that its pages frame uploaded HTML: its policy allows a frame of
+     * its own origin, and nothing but a microsite is answered cross-origin - not a page, and not the API.
+     */
+    @Test
+    @Order(24)
+    void theSiteMayFrameItsOwnOriginAndOnlyAMicrositeIsAnsweredCrossOrigin() {
+        given().baseUri(DOC_BASE_URL)
+                .when()
+                .get("/")
+                .then()
+                .statusCode(200)
+                .header("Content-Security-Policy", containsString("frame-src 'self'"))
+                .header("Access-Control-Allow-Origin", nullValue());
+
+        given().baseUri(DOC_BASE_URL)
+                .when()
+                .get(SITE_PATH)
+                .then()
+                .statusCode(401)
+                .header("Access-Control-Allow-Origin", nullValue());
+
+        given().baseUri(DOC_BASE_URL)
+                .when()
+                .get(micrositeUrlOf(DocumentationSets.MICROSITE_TOPIC))
+                .then()
+                .statusCode(200)
+                .header("Access-Control-Allow-Origin", "*");
+    }
+
+    /**
+     * <b>The search finds what teams uploaded</b>, the text of a microsite included - which reaches the index
+     * only because it was extracted from the bundle when it was uploaded, since a microsite's pages are in no
+     * content tree. One word is on the uploaded Markdown page and inside the microsite and on no generated
+     * page, so it finds exactly the two kinds; and <b>the chips narrow by kind</b>: with uploaded Markdown
+     * turned off, the microsite is what is left, and the URL carries the selection.
+     * <p>
+     * The index is built at the end of the build pass, after the pages are published, so it is waited for.
+     */
+    @Test
+    @Order(25)
+    void theSearchFindsUploadedDocumentationAndTheChipsNarrowItByKind() {
+        String query = "/search/?q=" + DocumentationSets.ON_BOTH_UPLOADED_KINDS;
+        await().atMost(BUILD_TIMEOUT)
+                .pollInterval(Duration.ofSeconds(3))
+                .until(() -> hitCountOn(query) == 2);
+
+        try (BrowserContext context = browser.newContext()) {
+            Page page = open(context, query);
+            Locator hits = searchResultsOf(page);
+            PlaywrightAssertions.assertThat(hits).hasCount(2);
+
+            chip(page, "Uploaded MD").click();
+
+            page.waitForURL(url -> url.contains("source=generated%2Chtml"));
+            PlaywrightAssertions.assertThat(chip(page, "Uploaded MD")).hasAttribute("aria-pressed", "false");
+            PlaywrightAssertions.assertThat(hits).hasCount(1);
+            PlaywrightAssertions.assertThat(page.getByRole(AriaRole.LIST,
+                            new Page.GetByRoleOptions().setName("Search results")))
+                    .containsText(DocumentationSets.MICROSITE_LABEL);
+        }
+    }
+
+    /**
+     * <b>A hit inside a microsite opens the page that frames it, at the file the word is on.</b> The word is
+     * on a page below the entry point, so the hit carries {@code ?path=} and the frame shows that page.
+     */
+    @Test
+    @Order(26)
+    void aHitInsideTheMicrositeOpensItsFrameAtTheFileTheWordIsOn() {
+        await().atMost(BUILD_TIMEOUT)
+                .pollInterval(Duration.ofSeconds(3))
+                .until(() -> hitCountOn("/search/?q=" + DocumentationSets.ONLY_INSIDE_THE_MICROSITE) > 0);
+
+        try (BrowserContext context = browser.newContext()) {
+            Page page = open(context, "/" + ENVIRONMENT + "/");
+
+            Locator box = page.locator("input.navbar__search-input").first();
+            box.click();
+            page.keyboard().type(DocumentationSets.ONLY_INSIDE_THE_MICROSITE, new Keyboard.TypeOptions().setDelay(60));
+            Locator hit = page.getByRole(AriaRole.OPTION).first();
+            PlaywrightAssertions.assertThat(hit).containsText(DocumentationSets.MICROSITE_LABEL);
+            hit.click();
+
+            page.waitForURL("**?path=" + DocumentationSets.MICROSITE_NESTED_PAGE);
+            page.waitForFunction("() => document.documentElement.dataset.hasHydrated === 'true'");
+            PlaywrightAssertions.assertThat(micrositeFrame(page).locator("h1"))
+                    .hasText(DocumentationSets.MICROSITE_NESTED_HEADING);
+        }
+    }
+
+    /**
+     * <b>Removing a set takes its files at once and its page with the next build.</b> The files are served
+     * straight from the bucket, so they are gone as soon as the call answers - after the few seconds a
+     * resolved prefix is cached. The page that framed them is part of a published build, which nothing edits,
+     * so the removal asks for the part to be built and the page disappears with that build.
+     */
+    @Test
+    @Order(27)
+    void removingTheMicrositeTakesItsFilesAtOnceAndItsPageWithTheNextBuild() {
+        long before = newestBuildId();
+        Map<String, String> set = DocumentationSets.micrositeStructureParameters(DocumentationSets.MICROSITE_TOPIC);
+
+        given().baseUri(DOC_BASE_URL)
+                .auth().oauth2(uploadToken())
+                .queryParams(set)
+                .when()
+                .delete(REMOVE_SETS_PATH)
+                .then()
+                .statusCode(200)
+                .body("setsRemoved", equalTo(1))
+                .body("buildAsked", equalTo(true));
+
+        await().atMost(Duration.ofSeconds(30))
+                .pollInterval(Duration.ofSeconds(1))
+                .until(() -> given().when().get(micrositeUrlOf(DocumentationSets.MICROSITE_TOPIC)).getStatusCode()
+                             == 404);
+
+        await().atMost(BUILD_TIMEOUT)
+                .pollInterval(Duration.ofSeconds(2))
+                .until(() -> succeededBuildOfPartAfter(before, JME_PART));
+        await().atMost(Duration.ofSeconds(30))
+                .pollInterval(Duration.ofSeconds(1))
+                .until(() -> given().baseUri(DOC_BASE_URL).when()
+                        .get("/" + ENVIRONMENT + micrositePageOf(DocumentationSets.MICROSITE_TOPIC))
+                        .getStatusCode() == 404);
+    }
+
+    /**
      * One part on its own, which is what an operator asks for when one part of a site is wrong and the rest of
      * it is expensive to rebuild. The ask leaves the same collapsing request every other trigger leaves, and
      * unlike an upload it is the forcing kind: the part is published whether its content moved or not, which
      * is what is wanted after a change outside the content.
      */
     @Test
-    @Order(20)
+    @Order(28)
     void askingForOnePartPublishesItWhetherItsContentMovedOrNot() {
         long before = newestBuildId();
 
@@ -862,7 +1128,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * under it.
      */
     @Test
-    @Order(21)
+    @Order(29)
     void askingForAPartTheSiteDoesNotHaveIsNotFound() {
         given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(operatorToken())
@@ -879,7 +1145,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * neither is the role that reads the upload API.
      */
     @Test
-    @Order(22)
+    @Order(30)
     void administeringWithAnythingButTheAdminRoleIsRejected() {
         String readerToken = fetchAccessToken(AUTH_BASE_URL, "jme-doc-reader", "secret");
 
@@ -894,7 +1160,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * documentation of a system. The two resources are separate in both directions.
      */
     @Test
-    @Order(23)
+    @Order(31)
     void uploadingWithTheOperatorRoleIsRejected() {
         given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(operatorToken())
@@ -908,7 +1174,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     }
 
     @Test
-    @Order(24)
+    @Order(32)
     void readingWhatTheGeneratorDidWithAnUploadRoleIsRejected() {
         for (String path : List.of(SITE_PATH, BUILDS_PATH, PARTS_PATH, SHELL_BUILDS_PATH, IMPORT_STATE_PATH)) {
             given().baseUri(DOC_BASE_URL)
@@ -921,7 +1187,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     }
 
     @Test
-    @Order(25)
+    @Order(33)
     void administeringASiteWithoutATokenIsRejected() {
         for (String path : List.of(SITE_PATH, BUILDS_PATH, PARTS_PATH, SHELL_BUILDS_PATH, IMPORT_STATE_PATH)) {
             given().baseUri(DOC_BASE_URL).when().get(path).then().statusCode(401);
@@ -935,7 +1201,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * something that might appear later - and it is refused rather than answered with an empty history.
      */
     @Test
-    @Order(26)
+    @Order(34)
     void askingForABuildOfASiteThisInstanceDoesNotConfigureIsNotFound() {
         given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(operatorToken())
@@ -955,7 +1221,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * exactly what is already published, and the suite has read everything it came for.
      */
     @Test
-    @Order(27)
+    @Order(35)
     void askingForTheWholeSiteAsksForEveryPartOfIt() {
         given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(operatorToken())
@@ -970,11 +1236,81 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
 
     /** Uploads the documentation set of this example under a fresh upload id. */
     private void upload(Map<String, String> parameters) {
+        upload(parameters, DocumentationSets.bundle());
+    }
+
+    /** Waits until a page is served, for the pages the collapsed builds of the uploads publish one by one. */
+    private static void awaitServed(String path) {
+        await().atMost(BUILD_TIMEOUT)
+                .pollInterval(Duration.ofSeconds(2))
+                .until(() -> given().baseUri(DOC_BASE_URL).when().get(path).getStatusCode() == 200);
+    }
+
+    /** Where the page framing a microsite of the component is served, below the tree of an environment. */
+    private static String micrositePageOf(String topic) {
+        return componentTreeOf(DocumentationSets.COMPONENT) + "component-architecture/crosscutting-concepts/microsites/"
+               + topic + "/";
+    }
+
+    /** And where the microsite itself is served: below the site's root, outside every environment tree. */
+    private static String micrositeUrlOf(String topic) {
+        return DOC_BASE_URL + "/microsites/" + DocumentationSets.SYSTEM + "/components/"
+               + DocumentationSets.COMPONENT + "/arc42/" + DocumentationSets.MICROSITE_LOCATION + "/" + topic + "/";
+    }
+
+    /**
+     * The frame the microsite is in, once it has loaded. The page's own route carries {@code microsites/} too,
+     * so the frame is told from the page by the prefix the microsite is served under.
+     */
+    private static Frame micrositeFrame(Page page) {
+        page.frameLocator("iframe").locator("body").waitFor();
+        String served = "/microsites/" + DocumentationSets.SYSTEM + "/components/";
+        return page.frames().stream()
+                .filter(frame -> !frame.equals(page.mainFrame()))
+                .filter(frame -> frame.url().contains(served))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("the page frames no microsite served under " + served));
+    }
+
+    /** The results on the search page, by the name of their list - the navigation is full of links too. */
+    private static Locator searchResultsOf(Page page) {
+        return page.getByRole(AriaRole.LIST, new Page.GetByRoleOptions().setName("Search results"))
+                .locator("li a[href]");
+    }
+
+    private static Locator chip(Page page, String label) {
+        return page.getByRole(AriaRole.GROUP, new Page.GetByRoleOptions().setName("Narrow the results"))
+                .getByRole(AriaRole.BUTTON, new Locator.GetByRoleOptions().setName(label)).first();
+    }
+
+    /** How many results the search page answers for a query now, or zero while there are none yet. */
+    private static int hitCountOn(String query) {
+        try (BrowserContext context = browser.newContext()) {
+            Page page = open(context, query);
+            Locator hits = searchResultsOf(page);
+            try {
+                hits.first().waitFor(new Locator.WaitForOptions().setTimeout(5_000));
+            } catch (TimeoutError nothingYet) {
+                return 0;
+            }
+            return hits.count();
+        }
+    }
+
+    /** Whether a build of the part newer than the given id has succeeded, whatever asked for it. */
+    private boolean succeededBuildOfPartAfter(long previousNewestBuildId, String part) {
+        return history().getList("findAll { it.state == 'SUCCEEDED' && it.part == '%s' }.id".formatted(part),
+                        Long.class).stream()
+                .anyMatch(id -> id > previousNewestBuildId);
+    }
+
+    /** Uploads a set under a fresh upload id. */
+    private void upload(Map<String, String> parameters, byte[] bundle) {
         given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(uploadToken())
                 .contentType("application/zip")
                 .queryParams(parameters)
-                .body(DocumentationSets.bundle())
+                .body(bundle)
                 .when()
                 .put(UPLOAD_PATH + UUID.randomUUID())
                 .then()

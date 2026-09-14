@@ -470,6 +470,12 @@ storage under the id of the upload - tagged, so the lifecycle rule of the bucket
 step before the upload: a tree that follows arc42 (`200`, with the chapters the template allows), one that does
 not (`422`, `UNKNOWN_CHAPTER`), a name the generator writes into that chapter itself (`RESERVED_NAME`), the
 validation for another system (`403`) and the one carrying a parameter a structure does not depend on (`400`).
+For an **HTML microsite** it covers the rules a built site is held to - an executable (`FORBIDDEN_EXTENSION`), the
+service's own search text file (`RESERVED_PATH`), no `index.html` (`MISSING_ENTRY_POINT`) and a chapter arc42 does
+not have (`UNKNOWN_LOCATION`), all `422` - an HTML upload without a `label` and a Markdown one naming a `location`
+(`400`), the microsite served straight from the bucket as soon as it is accepted - sandboxed, with the one script
+the service injects, a file that is not a page downloaded, a missing file `404` - and its files lying one object
+each under `current/`, tagged as the current documentation.
 
 [`DocSiteExampleIT`](jme-doc-test/src/test/java/ch/admin/bit/jeap/jme/doc/DocSiteExampleIT.java) is the other
 half: it drives the whole chain a landscape travels - an operator asks for the architecture model, the import
@@ -492,7 +498,16 @@ rather than against a deployed instance: this example publishes the stubbed land
 seconds and can be waited for. An upload asks for a build of the part that carries its system, that build
 succeeds, and the page is then read at its route - in every environment tree, with its body unchanged and the
 provenance the doc service generated under it. A second set documents a component the stubbed landscape does
-**not** hold, and it is published from the upload alone.
+**not** hold, and it is published from the upload alone. The system's own documentation is published too, with
+its raw HTML shown as text and never run - read in the browser - and its SVG served sandboxed, and so is a
+library, which no model holds, beside the components of its system.
+
+A **microsite** is uploaded beside them. In the browser it is framed inside the site's navigation, and the probe
+page it carries reports an opaque origin, no way to the page around it, storage that works through the injected
+script, and a height the frame grows to; `?path=` opens a page inside it with its own stylesheet. The site may
+frame its own origin, and nothing but a microsite is answered cross-origin. The **search** finds the uploaded
+Markdown and the text inside the microsite, the chips narrow the results by kind, and a hit inside the microsite
+opens its frame at that file. Removing the microsite takes its files at once and its page with the next build.
 
 It also covers the **second upstream**: that the three reaction indexes were read and their graphs stored, and
 that the runtime views they are drawn into are served - chapter 6 of a system and of a component, with the

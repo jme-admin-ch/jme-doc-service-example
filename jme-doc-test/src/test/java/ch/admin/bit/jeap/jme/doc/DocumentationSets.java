@@ -166,6 +166,251 @@ final class DocumentationSets {
         return IMAGE.clone();
     }
 
+    // --- The system's own documentation ---------------------------------------------------------------------
+
+    /** The chapter the system's own set is filed in, and the page in it that carries raw HTML. */
+    static final String SYSTEM_CHAPTER = "2-constraints";
+    static final String RAW_HTML_PAGE_NAME = "raw-html";
+
+    /**
+     * What the raw HTML page carries: a script that would set a flag, a style that would draw a frame around
+     * the whole page, and a picture in SVG - the one image format a browser opens as a document. The script
+     * and the style are shown as text and never applied; the SVG is served sandboxed.
+     */
+    static final String RAW_SCRIPT = "<script>window.UPLOADED_SCRIPT_RAN = true</script>";
+    static final String RAW_STYLE = "<style>body { outline: 7px solid red }</style>";
+    static final String SVG_NAME = "boundary.svg";
+    static final String SVG_ALT = "The boundary of the system";
+
+    /**
+     * A word on the uploaded Markdown page and inside the uploaded microsite, and on no generated page - so a
+     * search for it finds exactly the two kinds of uploaded documentation, and narrowing by source has an
+     * effect.
+     */
+    static final String ON_BOTH_UPLOADED_KINDS = "quartermaster";
+
+    /** The parameters of the system's own set: a system documents itself, so it names no subject and no version. */
+    static Map<String, String> systemParameters() {
+        Map<String, String> parameters = new LinkedHashMap<>();
+        parameters.put("type", "system-docs");
+        parameters.put("system", SYSTEM);
+        parameters.put("template", "arc42");
+        parameters.put("source-format", "markdown");
+        parameters.putAll(provenance());
+        return parameters;
+    }
+
+    /** The system's own set: one page with raw HTML in it, and the SVG it shows. */
+    static byte[] systemBundle() {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(bytes)) {
+            write(zip, SYSTEM_CHAPTER + "/" + RAW_HTML_PAGE_NAME + ".md", """
+                    # Raw HTML as it was uploaded
+
+                    The %s keeps the constraints of this system.
+
+                    %s
+
+                    %s
+
+                    ![%s](./%s)
+                    """.formatted(ON_BOTH_UPLOADED_KINDS, RAW_SCRIPT, RAW_STYLE, SVG_ALT, SVG_NAME));
+            write(zip, SYSTEM_CHAPTER + "/" + SVG_NAME, svg());
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return bytes.toByteArray();
+    }
+
+    /**
+     * An SVG with a script in it, which runs when the file is opened as a document - the reason the file is
+     * served sandboxed. <b>Over 10 KB on purpose</b>, for the same reason as {@link #image()}: a smaller one is
+     * inlined into the page and never served as a file of its own.
+     */
+    private static String svg() {
+        StringBuilder svg = new StringBuilder(
+                "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"480\" height=\"480\">\n"
+                + "<script>window.UPLOADED_SVG_SCRIPT_RAN = true</script>\n");
+        Random noise = new Random(7); // NOSONAR a fixed seed on purpose: the same picture on every run
+        for (int i = 0; i < 400; i++) {
+            svg.append("<rect x=\"%d\" y=\"%d\" width=\"12\" height=\"12\" fill=\"#%06x\"/>\n"
+                    .formatted(noise.nextInt(468), noise.nextInt(468), noise.nextInt(0x1000000)));
+        }
+        return svg.append("</svg>\n").toString();
+    }
+
+    // --- A library ------------------------------------------------------------------------------------------
+
+    /**
+     * A library of the system. No architecture model holds a library, so everything published about it comes
+     * out of this upload - its tree beside the components, and the chapter written here.
+     */
+    static final String LIBRARY = "jme-doc-fixtures";
+    static final String LIBRARY_CHAPTER = "12-glossary";
+    static final String LIBRARY_PAGE_NAME = "terms";
+    static final String LIBRARY_PAGE_TEXT = "A documentation set is what one upload carries.";
+
+    static Map<String, String> libraryParameters() {
+        Map<String, String> parameters = new LinkedHashMap<>();
+        parameters.put("type", "library-docs");
+        parameters.put("system", SYSTEM);
+        parameters.put("library", LIBRARY);
+        parameters.put("template", "arc42");
+        parameters.put("source-format", "markdown");
+        parameters.put("version", "2.0.0");
+        parameters.putAll(provenance());
+        return parameters;
+    }
+
+    static byte[] libraryBundle() {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(bytes)) {
+            write(zip, LIBRARY_CHAPTER + "/" + LIBRARY_PAGE_NAME + ".md",
+                    "# The terms of the fixtures\n\n" + LIBRARY_PAGE_TEXT + "\n");
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return bytes.toByteArray();
+    }
+
+    // --- An HTML microsite ----------------------------------------------------------------------------------
+
+    /** Where the microsite is embedded - a chapter of the component - and what names it in the navigation. */
+    static final String MICROSITE_LOCATION = "8-crosscutting-concepts";
+    static final String MICROSITE_TOPIC = "configuration-reference";
+    static final String MICROSITE_LABEL = "Configuration Reference";
+
+    static final String MICROSITE_HEADING = "Every property of this service";
+
+    /** A page below the entry point, with a stylesheet of its own: what a deep link and a search hit open. */
+    static final String MICROSITE_NESTED_PAGE = "pages/properties.html";
+    static final String MICROSITE_NESTED_HEADING = "Every property, one by one";
+    static final String MICROSITE_NESTED_COLOUR = "rgb(0, 100, 0)";
+
+    /** A word only inside the microsite, so finding it says its content was indexed when it was uploaded. */
+    static final String ONLY_INSIDE_THE_MICROSITE = "idempotency";
+
+    /** What the entry point tells the page it frames it in about its height - within the four screens allowed. */
+    static final int MICROSITE_REPORTED_HEIGHT = 1500;
+
+    /** The service's own name for the file a microsite's search text is stored in, which a set may not carry. */
+    static final String MICROSITE_SEARCH_TEXT = "_jeap-search.tsv";
+
+    /** The parameters of a microsite of the component, under a topic of the caller's choosing. */
+    static Map<String, String> micrositeParameters(String topic) {
+        Map<String, String> parameters = new LinkedHashMap<>();
+        parameters.put("type", "component-docs");
+        parameters.put("system", SYSTEM);
+        parameters.put("component", COMPONENT);
+        parameters.put("template", "arc42");
+        parameters.put("source-format", "html");
+        parameters.put("location", MICROSITE_LOCATION);
+        parameters.put("topic", topic);
+        parameters.put("label", MICROSITE_LABEL);
+        parameters.put("version", "1.0.0");
+        parameters.putAll(provenance());
+        return parameters;
+    }
+
+    /** What the structure of a microsite depends on - the validation endpoint refuses a label and a version. */
+    static Map<String, String> micrositeStructureParameters(String topic) {
+        Map<String, String> parameters = micrositeParameters(topic);
+        parameters.keySet().removeAll(List.of("label", "version"));
+        parameters.keySet().removeAll(provenance().keySet());
+        return parameters;
+    }
+
+    /** The files of the microsite, as a build that emits HTML leaves them. */
+    static List<String> micrositePaths() {
+        return List.of("index.html", MICROSITE_NESTED_PAGE, "pages/style.css", "data/properties.json");
+    }
+
+    /**
+     * The microsite: an entry point that does what an application does while it loads and writes down what the
+     * browser let it do, a nested page with its own stylesheet, and a JSON file it would fetch.
+     */
+    static byte[] micrositeBundle() {
+        return micrositeBundleOf(micrositePaths());
+    }
+
+    /** A microsite carrying the given paths - the known ones with their content, anything else with a line. */
+    static byte[] micrositeBundleOf(List<String> paths) {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(bytes)) {
+            for (String path : paths) {
+                write(zip, path, switch (path) {
+                    case "index.html" -> micrositeEntryPoint();
+                    case MICROSITE_NESTED_PAGE -> micrositeNestedPage();
+                    case "pages/style.css" -> "h1 { color: " + MICROSITE_NESTED_COLOUR + " }\n";
+                    case "data/properties.json" -> "{\"properties\": 12}\n";
+                    default -> "not a file of a documentation site\n";
+                });
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return bytes.toByteArray();
+    }
+
+    /**
+     * The entry point. Its script reads storage - which a sandboxed document may not do without the shim the
+     * service injects - records its origin and whether it could reach the page around it, and reports a height
+     * to that page, which is the one message a page framing a microsite listens for.
+     */
+    private static String micrositeEntryPoint() {
+        return """
+                <!doctype html>
+                <html lang="en"><head><meta charset="utf-8"><title>Configuration</title></head>
+                <body>
+                <h1>%s</h1>
+                <p>The %s of this service reads every property once.</p>
+                <script>
+                  window.STORAGE_WORKED = false;
+                  try {
+                    localStorage.setItem('probe', 'yes');
+                    window.STORAGE_WORKED = localStorage.getItem('probe') === 'yes';
+                  } catch (e) {
+                    window.STORAGE_WORKED = false;
+                  }
+                  window.ORIGIN = String(window.origin);
+                  try {
+                    window.REACHED_PARENT = Boolean(parent.location.href);
+                  } catch (e) {
+                    window.REACHED_PARENT = false;
+                  }
+                  parent.postMessage({type: 'jeap-doc-microsite-height', height: %d}, '*');
+                </script>
+                </body></html>
+                """.formatted(MICROSITE_HEADING, ON_BOTH_UPLOADED_KINDS, MICROSITE_REPORTED_HEIGHT);
+    }
+
+    private static String micrositeNestedPage() {
+        return """
+                <!doctype html>
+                <html lang="en"><head><meta charset="utf-8"><title>Properties</title>
+                <link rel="stylesheet" href="style.css"></head>
+                <body><h1>%s</h1>
+                <p>Every request carries an %s key, and a repeated one is answered from the log.</p>
+                </body></html>
+                """.formatted(MICROSITE_NESTED_HEADING, ONLY_INSIDE_THE_MICROSITE);
+    }
+
+    /** Where the provenance of every set of this fixture points. */
+    private static Map<String, String> provenance() {
+        Map<String, String> provenance = new LinkedHashMap<>();
+        provenance.put("source-repository", "ssh://git@bitbucket.example.ch/bit_jme/jme-doc-service-example.git");
+        provenance.put("source-revision", SOURCE_REVISION);
+        provenance.put("source-ref", "main");
+        provenance.put("source-timestamp", "2026-08-21T09:12:00+02:00");
+        return provenance;
+    }
+
+    private static void write(ZipOutputStream zip, String path, String content) throws IOException {
+        zip.putNextEntry(new ZipEntry(path));
+        zip.write(content.getBytes(StandardCharsets.UTF_8));
+        zip.closeEntry();
+    }
+
     private static byte[] picture() {
         BufferedImage picture = new BufferedImage(96, 96, BufferedImage.TYPE_INT_RGB);
         Random noise = new Random(42); // NOSONAR a fixed seed on purpose: the same picture on every run
