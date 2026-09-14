@@ -90,8 +90,7 @@ final class DocumentationSets {
 
     /**
      * The parameters of the upload: what the structure depends on, plus where the documentation came from. It
-     * names no {@code site}, so the documentation belongs to the default site - which is the only site this
-     * example configures.
+     * names no {@code site}, so the documentation belongs to the default site.
      */
     static Map<String, String> parameters() {
         Map<String, String> parameters = new LinkedHashMap<>(structureParameters());
@@ -393,6 +392,43 @@ final class DocumentationSets {
                 <p>Every request carries an %s key, and a repeated one is answered from the log.</p>
                 </body></html>
                 """.formatted(MICROSITE_NESTED_HEADING, ONLY_INSIDE_THE_MICROSITE);
+    }
+
+    // --- The second site -------------------------------------------------------------------------------------
+
+    /** The second site this example configures: one that needs no architecture model. */
+    static final String HANDBOOK_SITE = "handbook";
+
+    /** The page the system uploads to the handbook: its chapter folder and its name without the extension. */
+    static final String HANDBOOK_CHAPTER = "8-crosscutting-concepts";
+    static final String HANDBOOK_PAGE_NAME = "how-we-release";
+    static final String HANDBOOK_PAGE_TEXT = "A release of JME is ratified by two maintainers before it is tagged.";
+
+    /** A word on the handbook's page and on no page of the default site, so each site's search can be asked. */
+    static final String ON_THE_HANDBOOK_ONLY = "ratified";
+
+    /** The system's own set once more, for the handbook: the same parameters, naming the site. */
+    static Map<String, String> handbookParameters() {
+        Map<String, String> parameters = systemParameters();
+        parameters.put("site", HANDBOOK_SITE);
+        return parameters;
+    }
+
+    static byte[] handbookBundle() {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(bytes)) {
+            write(zip, HANDBOOK_CHAPTER + "/" + HANDBOOK_PAGE_NAME + ".md", """
+                    ---
+                    title: How we release
+                    description: What happens between a merged change and a tagged release.
+                    ---
+
+                    %s
+                    """.formatted(HANDBOOK_PAGE_TEXT));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return bytes.toByteArray();
     }
 
     /** Where the provenance of every set of this fixture points. */

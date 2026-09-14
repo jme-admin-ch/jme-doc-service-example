@@ -70,7 +70,7 @@ class DocServiceExampleIT extends BootServiceSpringIntegrationTestBase {
 
     private static final String SYSTEM = DocumentationSets.SYSTEM;
 
-    /** The only site this example configures, and the one an upload that names none belongs to. */
+    /** The default site, the one an upload that names none belongs to. */
     private static final String SITE = "default";
 
     /**
@@ -244,6 +244,23 @@ class DocServiceExampleIT extends BootServiceSpringIntegrationTestBase {
                 .then()
                 .statusCode(400)
                 .body("code", equalTo("UNKNOWN_PARAMETER"));
+    }
+
+    /**
+     * Which sites exist is configuration, so an upload naming a site nobody configured is a typo rather than the
+     * first upload of a new site - and the answer names the sites there are, so the typo can be fixed.
+     */
+    @Test
+    void uploadForASiteThisInstanceDoesNotConfigureNamesTheSitesThereAre() {
+        Map<String, String> forAnUnknownSite = documentationSetParameters();
+        forAnUnknownSite.put("site", "governance");
+
+        upload(UUID.randomUUID(), uploadToken(), forAnUnknownSite)
+                .then()
+                .statusCode(400)
+                .body("code", equalTo("UNKNOWN_SITE"))
+                .body("detail", containsString(SITE))
+                .body("detail", containsString(DocumentationSets.HANDBOOK_SITE));
     }
 
     /**

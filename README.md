@@ -68,8 +68,8 @@ Use the provided Maven wrapper to build and run the project.
 
 The script is every section below in one go: it checks the machine can do all of it, builds the example,
 starts the database and the object storage, starts the three services, asks for the model and the reactions
-of every environment to be imported, waits until every part of the site is published, and opens the
-documentation in Chrome. Every step
+of every environment to be imported, waits until every part of the site is published, asks for the second site
+to be published, and opens the documentation in Chrome. Every step
 either succeeds or stops the script with what failed and where to look - the services log into
 `target/local/`. Besides the prerequisites above it needs `curl` and `jq`, and it says so before it does
 anything.
@@ -417,6 +417,65 @@ published the site - not on a schedule, and it can never fail a publication.
 Before the first build, all of them answer `503` with a page saying the documentation is on its way, and a
 `Retry-After` - a site that has not been generated yet is not a wrong URL.
 
+### A second site, without an architecture model
+
+One instance serves as many documentation sites as it configures, each one published whole with its own
+navigation, its own look and its own search. This example configures a second one, the **handbook** of the
+system `jme`, in [`application.yml`](jme-doc-service/src/main/resources/application.yml):
+
+```yaml
+jeap:
+  doc:
+    sites:
+      default:
+        title: JME Documentation
+      handbook:
+        title: JME Handbook
+        tagline: How the JME team works
+        color-scheme: neutral
+        architecture-model-required: false
+        environments:
+          - id: current
+            label: Current
+            main: true
+            latest: true
+```
+
+**It needs no architecture model.** An environment names a stage, and every environment an architecture
+repository is configured for puts that stage's landscape on the site - so the handbook's one environment,
+`current`, is configured under neither `jeap.doc.archrepo` nor `jeap.doc.reactions`. No import ever publishes the
+handbook, and no system of the model appears on it: its systems are the ones something was uploaded for.
+`architecture-model-required: false` is what the site says about itself - the page about the documentation
+reports it, and the site stays publishable if its environment is ever mapped onto an architecture repository.
+
+Every site but the default one is served below `/site/<id>/`, so the handbook is at
+http://localhost:8080/jme-doc-service/site/handbook/, its search at `…/site/handbook/search/`. Until something asks
+for it, it answers `503`. An operator publishes it the same way as the default site:
+
+```shell
+curl -i -X POST http://localhost:8080/jme-doc-service/api/sites/handbook/builds \
+  -H "Authorization: Bearer $ADMIN"
+```
+
+And a pipeline puts documentation on it by naming the site in its upload - the token, the role and every other
+parameter are the ones it uses for the default site, because what a pipeline may change is decided per system
+and not per site:
+
+```shell
+curl -i -X PUT "http://localhost:8080/jme-doc-service/api/uploads/docs/$(uuidgen)\
+?site=handbook&type=system-docs&system=jme&template=arc42&source-format=markdown\
+&source-repository=ssh://git@bitbucket.example.ch/bit_jme/jme-doc-service-example.git\
+&source-revision=9a1c2f8&source-ref=main&source-timestamp=2026-08-21T09:12:00%2B02:00" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/zip" \
+  --data-binary @docs.zip
+```
+
+That upload publishes the part of `jme` on the handbook, and only there: a set belongs to one site, so the
+documentation of `jme` on the default site is not replaced by it. Chapter 1 of `jme` on the handbook carries the
+generated page saying that the architecture model does not hold the system - which, for this site, is true. A site
+nobody configures is refused with `400` `UNKNOWN_SITE`, and the answer names the sites there are.
+
 ### What the bucket keeps, and for how long
 
 Nothing in the object storage is kept indefinitely, and what removes it is not the same thing for both kinds.
@@ -463,10 +522,11 @@ on free ports. They take a few minutes together, most of it the runs of the site
 documentation set with a token of the mock server. It covers the stored upload (`201`, `PENDING`), the repetition
 under the same upload id (`200`, the same `id`) and a different documentation set under a used one (`409`), the
 upload for another system and the one with the read role only (`403`), the upload without a token (`401`), an
-upload that does not describe a documentation set and one with a mistyped parameter (`400`), an upload that
-announces no size (`411`), an upload whose set would not be published (`422`, `STRUCTURE_INVALID`, with the
-findings and the upload left `FAILED`), reading the state of an upload back, and the bundle lying in the object
-storage under the id of the upload - tagged, so the lifecycle rule of the bucket expires it. It also drives the
+upload that does not describe a documentation set, one with a mistyped parameter and one for a site this instance
+does not configure (`400`, the last naming the sites there are), an upload that announces no size (`411`), an
+upload whose set would not be published (`422`, `STRUCTURE_INVALID`, with the findings and the upload left
+`FAILED`), reading the state of an upload back, and the bundle lying in the object storage under the id of the
+upload - tagged, so the lifecycle rule of the bucket expires it. It also drives the
 step before the upload: a tree that follows arc42 (`200`, with the chapters the template allows), one that does
 not (`422`, `UNKNOWN_CHAPTER`), a name the generator writes into that chapter itself (`RESERVED_NAME`), the
 validation for another system (`403`) and the one carrying a parameter a structure does not depend on (`400`).
@@ -509,6 +569,15 @@ frame its own origin, and nothing but a microsite is answered cross-origin. The 
 Markdown and the text inside the microsite, the chips narrow the results by kind, and a hit inside the microsite
 opens its frame at that file. Removing the microsite takes its files at once and its page with the next build.
 
+It also covers **the second site**, the handbook, which needs no architecture model: the import published every
+part of the default site and asked for nothing on it, none of the model's systems is a part of it, an operator
+publishes it below `/site/handbook/` with its title and tagline and a page about the documentation saying that it
+does not wait for the model, an upload naming the site is built into the handbook's part of `jme` and into no part
+of the default site, the page is served there beside the page saying the model does not hold the system and without
+any chapter the model would have written, the default site neither gains the page nor loses its own set of `jme`,
+and in the browser the handbook is drawn in its own colour scheme and searches an index of its own in both
+directions.
+
 It also covers the **second upstream**: that the three reaction indexes were read and their graphs stored, and
 that the runtime views they are drawn into are served - chapter 6 of a system and of a component, with the
 message and the component the observer saw in them.
@@ -525,8 +594,8 @@ Everything this example configures is in three files:
 
 - [`jme-doc-service/src/main/resources/application.yml`](jme-doc-service/src/main/resources/application.yml) -
   the name of the system the semantic roles are issued for (`jme`), the bucket of the documentation, the size
-  limit of an upload, how long an upload is kept, the one documentation site this instance publishes and what it
-  is called, and where the site generator finds Node and the site template's dependencies
+  limit of an upload, how long an upload is kept, the two documentation sites this instance publishes and what they
+  are called, and where the site generator finds Node and the site template's dependencies
 - [`application-local.yml`](jme-doc-service/src/main/resources/application-local.yml) - database, object storage,
   OAuth issuer and the origin the site is published under, all of the developer machine, plus the two upstreams
   of each environment: the architecture repository under `jeap.doc.archrepo` and the reaction observer under

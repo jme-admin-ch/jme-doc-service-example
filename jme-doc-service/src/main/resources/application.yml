@@ -62,12 +62,31 @@ jeap:
       node-command: node
     sites:
       # The documentation sites of this instance. One site is one published whole - one navigation, one
-      # layout - and this example publishes a single one, the default site, served at the context root.
-      # Everything else about it is left at the defaults of the doc service: the four environments
-      # dev/ref/abn/prod with prod at the root, and publication on upload.
+      # layout - and this example publishes two.
       #
-      # A site is generated as one build per part - the shell plus one per system - and its systems come from
-      # an architecture repository, of which this example configures none (jeap.doc.archrepo). So this site
-      # is the shell alone: the root page of each environment and the page about the documentation.
+      # The default site is served at the context root and is the one an upload naming no site belongs to.
+      # Everything else about it is left at the defaults of the doc service: the four environments
+      # dev/ref/abn/prod with prod at the root, and publication on upload. A site is generated as one build
+      # per part - the shell plus one per system - and its systems come from the architecture repository of
+      # each environment (jeap.doc.archrepo, configured per profile) and from what was uploaded to it.
       default:
         title: JME Documentation
+      # A second site, served at /site/handbook/, that needs no architecture model. Its one environment has
+      # no architecture repository behind it - 'current' is deliberately absent from jeap.doc.archrepo and
+      # jeap.doc.reactions - so no import publishes it and no landscape appears on it: its systems are the
+      # ones something was uploaded for, published by the upload itself or by an operator. An environment
+      # names a stage, and one called 'prod' would put the whole landscape of that stage on this site too.
+      #
+      # architecture-model-required is what the site says about itself: with no architecture repository it
+      # changes no build, but the page about the documentation reports it, and the site stays publishable if
+      # its environment is ever mapped onto one.
+      handbook:
+        title: JME Handbook
+        tagline: How the JME team works
+        color-scheme: neutral
+        architecture-model-required: false
+        environments:
+          - id: current
+            label: Current
+            main: true
+            latest: true

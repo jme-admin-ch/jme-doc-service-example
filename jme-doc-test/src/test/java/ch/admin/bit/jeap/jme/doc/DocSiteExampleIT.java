@@ -45,6 +45,7 @@ import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.awaitility.Awaitility.await;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
@@ -105,10 +106,27 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     private static final String DOC_BASE_URL = "http://localhost:" + DOC_PORT + "/jme-doc-service";
 
     /**
-     * The only site this example configures. It is served at the context root, and it is the site an upload
-     * that names none belongs to.
+     * The default site. It is served at the context root, and it is the site an upload that names none belongs
+     * to.
      */
     private static final String SITE = "default";
+
+    /**
+     * The second site, which needs no architecture model: its one environment has no architecture repository,
+     * so nothing but an upload and an operator publishes it. It is served below {@code /site/handbook/}, and its
+     * one environment is its main one, so that is also the root of its only tree.
+     */
+    private static final String HANDBOOK = DocumentationSets.HANDBOOK_SITE;
+    private static final String HANDBOOK_ROOT = "/site/" + HANDBOOK + "/";
+    private static final String HANDBOOK_SITE_PATH = "/api/sites/" + HANDBOOK;
+    private static final String HANDBOOK_TITLE = "JME Handbook";
+    private static final String HANDBOOK_TAGLINE = "How the JME team works";
+
+    /** The primary colour of the {@code neutral} scheme the handbook is configured with. */
+    private static final String NEUTRAL_PRIMARY_COLOUR = "#414c57";
+
+    /** A site nobody configures - a typo, as far as the instance can tell. */
+    private static final String UNCONFIGURED_SITE = "governance";
 
     /**
      * The environments of the site. All four read an architecture model here, and all four read the same one:
@@ -1210,16 +1228,183 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     }
 
     /**
+     * <b>A second site, and one that needs no architecture model.</b> Its one environment has no architecture
+     * repository behind it, so the import at the start of this suite - which asked for every part of every site
+     * documenting the environments it read - asked for nothing on it, and no system of the model is a part of
+     * it.
+     * <p>
+     * Whether it has been published is not asserted: the containers keep their data between runs, so a second
+     * run finds what the first one published. Nothing is owed a build either way, because this suite switches
+     * the reconcile schedule off - which is exactly the schedule that would publish a site like this one on a
+     * real instance.
+     */
+    @Test
+    @Order(34)
+    void aSiteWithoutAnArchitectureModelIsLeftAloneByTheImport() {
+        assertThat(readJson("/api/sites").getList("site", String.class)).containsExactlyInAnyOrder(SITE, HANDBOOK);
+
+        given().baseUri(DOC_BASE_URL)
+                .auth().oauth2(operatorToken())
+                .when()
+                .get(HANDBOOK_SITE_PATH)
+                .then()
+                .statusCode(200)
+                .body("title", equalTo(HANDBOOK_TITLE))
+                .body("environments", contains("current"))
+                .body("pending", nullValue())
+                .body("running", empty());
+        assertThat(readJson(HANDBOOK_SITE_PATH + "/parts").getList("part", String.class))
+                .contains(SHELL_PART)
+                .doesNotContain(ORDERS_PART);
+    }
+
+    /**
+     * An operator publishes it, and it is served below {@code /site/handbook/} with the title and the tagline
+     * it is configured with. Nothing of the model is on it, and the page about the documentation says that the
+     * site does not wait for one - and that an upload is what publishes it.
+     */
+    @Test
+    @Order(35)
+    void anOperatorPublishesTheSiteBelowItsOwnPathWithoutAModel() {
+        long before = newestBuildIdOf(HANDBOOK);
+        int parts = readJson(HANDBOOK_SITE_PATH + "/parts").getList("part").size();
+
+        given().baseUri(DOC_BASE_URL)
+                .auth().oauth2(operatorToken())
+                .when()
+                .post(HANDBOOK_SITE_PATH + "/builds")
+                .then()
+                .statusCode(202)
+                .body("site", equalTo(HANDBOOK))
+                .body("partsRequested", equalTo(parts));
+
+        await().atMost(BUILD_TIMEOUT)
+                .pollInterval(Duration.ofSeconds(1))
+                .until(() -> succeededBuildOfPartAfter(HANDBOOK, before, SHELL_PART));
+        // An instance re-reads which build of a site is published on jeap.doc.publication.refresh rather than
+        // per request, so a site published for the first time is served a moment after its build.
+        awaitServed(HANDBOOK_ROOT);
+
+        given().baseUri(DOC_BASE_URL)
+                .when()
+                .get(HANDBOOK_ROOT)
+                .then()
+                .statusCode(200)
+                .body(containsString(HANDBOOK_TITLE))
+                .body(containsString(HANDBOOK_TAGLINE));
+        String about = given().baseUri(DOC_BASE_URL)
+                .when()
+                .get(HANDBOOK_ROOT + "about-this-documentation/")
+                .then()
+                .statusCode(200)
+                .extract().asString();
+        assertThat(about).containsPattern("Waits for the architecture model(?:\\s|<[^>]*>)*no<")
+                .contains("only when something is uploaded to this site");
+
+        assertThat(readJson(PARTS_PATH).getList("part", String.class))
+                .containsExactlyInAnyOrder(SHELL_PART, JME_PART, ORDERS_PART);
+    }
+
+    /**
+     * An upload naming the site is published there, into the part of its system - and only there: the build is
+     * in the handbook's history, and the default site was asked for nothing.
+     */
+    @Test
+    @Order(36)
+    void anUploadNamingTheSiteIsPublishedThere() {
+        long before = Math.max(newestBuildIdOf(SITE), newestBuildIdOf(HANDBOOK));
+
+        upload(DocumentationSets.handbookParameters(), DocumentationSets.handbookBundle());
+
+        JsonPath build = await().atMost(BUILD_TIMEOUT)
+                .pollInterval(Duration.ofSeconds(1))
+                .until(() -> buildAfter(HANDBOOK, before, "UPLOAD"), Objects::nonNull);
+
+        assertThat(build.getString("part")).isEqualTo(JME_PART);
+        assertThat(build.getString("state")).isEqualTo("SUCCEEDED");
+        assertThat(buildAfter(SITE, before, "UPLOAD")).isNull();
+        assertThat(readJson(HANDBOOK_SITE_PATH + "/parts").getList("part", String.class))
+                .containsExactlyInAnyOrder(SHELL_PART, JME_PART);
+    }
+
+    /**
+     * What the handbook serves is what was uploaded to it and nothing of the model. The system is one the model
+     * of the default site holds, and on the handbook chapter 1 says the model does not hold it - which is true:
+     * a site reads only the models of its own environments, and this one reads none. And the two sites keep
+     * their sets apart: the default site has no such page, and its own set of the same system is untouched.
+     */
+    @Test
+    @Order(37)
+    void theSiteServesWhatWasUploadedAndNothingOfTheModel() {
+        String handbookSystemTree = "/site/" + HANDBOOK + SYSTEM_TREE;
+        String handbookPage = "crosscutting-concepts/" + DocumentationSets.HANDBOOK_PAGE_NAME + "/";
+        awaitServed(handbookSystemTree + handbookPage);
+
+        given().baseUri(DOC_BASE_URL)
+                .when()
+                .get(handbookSystemTree + handbookPage)
+                .then()
+                .statusCode(200)
+                .body(containsString("How we release"))
+                .body(containsString(DocumentationSets.HANDBOOK_PAGE_TEXT))
+                .body(containsString("Uploaded"))
+                .body(containsString(DocumentationSets.SOURCE_REVISION));
+        given().baseUri(DOC_BASE_URL)
+                .when()
+                .get(handbookSystemTree + "intro/not-in-the-architecture-model/")
+                .then()
+                .statusCode(200);
+        for (String generatedByTheModel : List.of("context-and-scope/", "building-block-view/")) {
+            given().baseUri(DOC_BASE_URL).when().get(handbookSystemTree + generatedByTheModel)
+                    .then().statusCode(404);
+        }
+        given().baseUri(DOC_BASE_URL).when().get(HANDBOOK_ROOT + "systems/orders/").then().statusCode(404);
+
+        given().baseUri(DOC_BASE_URL).when().get(SYSTEM_TREE + handbookPage).then().statusCode(404);
+        given().baseUri(DOC_BASE_URL)
+                .when()
+                .get(SYSTEM_TREE + "constraints/" + DocumentationSets.RAW_HTML_PAGE_NAME + "/")
+                .then()
+                .statusCode(200);
+    }
+
+    /**
+     * In the browser: the handbook looks like its own site, and it searches its own index. Each search is asked
+     * for a word it has, which is what makes the word it does not have a finding rather than an index that had
+     * not loaded yet.
+     */
+    @Test
+    @Order(38)
+    void theSiteHasItsOwnLookAndItsOwnSearchInTheBrowser() {
+        try (BrowserContext context = browser.newContext()) {
+            assertThat(primaryColourOf(open(context, HANDBOOK_ROOT))).isEqualTo(NEUTRAL_PRIMARY_COLOUR);
+            assertThat(primaryColourOf(open(context, "/"))).isNotEqualTo(NEUTRAL_PRIMARY_COLOUR);
+        }
+
+        String handbookPage = "/site/" + HANDBOOK + SYSTEM_TREE + "crosscutting-concepts/"
+                              + DocumentationSets.HANDBOOK_PAGE_NAME + "/";
+        await().atMost(BUILD_TIMEOUT)
+                .pollInSameThread()
+                .pollInterval(Duration.ofSeconds(3))
+                .until(() -> hitsOn(HANDBOOK_ROOT + "search/?q=" + DocumentationSets.ON_THE_HANDBOOK_ONLY)
+                        .stream().anyMatch(href -> href.endsWith(handbookPage)));
+
+        assertThat(hitsOn("/search/?q=" + DocumentationSets.ON_BOTH_UPLOADED_KINDS)).isNotEmpty();
+        assertThat(hitsOn("/search/?q=" + DocumentationSets.ON_THE_HANDBOOK_ONLY)).isEmpty();
+        assertThat(hitsOn(HANDBOOK_ROOT + "search/?q=" + DocumentationSets.ON_BOTH_UPLOADED_KINDS)).isEmpty();
+    }
+
+    /**
      * A site is configuration, so a site this instance does not configure is a typo in the request rather than
      * something that might appear later - and it is refused rather than answered with an empty history.
      */
     @Test
-    @Order(34)
+    @Order(39)
     void askingForABuildOfASiteThisInstanceDoesNotConfigureIsNotFound() {
         given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(operatorToken())
                 .when()
-                .post("/api/sites/governance/builds")
+                .post("/api/sites/" + UNCONFIGURED_SITE + "/builds")
                 .then()
                 .statusCode(404);
     }
@@ -1234,7 +1419,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * exactly what is already published, and the suite has read everything it came for.
      */
     @Test
-    @Order(35)
+    @Order(40)
     void askingForTheWholeSiteAsksForEveryPartOfIt() {
         given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(operatorToken())
@@ -1314,6 +1499,12 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
         }
     }
 
+    /** The primary colour of the scheme the page is drawn in, as the site's stylesheet defines it. */
+    private static String primaryColourOf(Page page) {
+        return String.valueOf(page.evaluate(
+                "() => getComputedStyle(document.documentElement).getPropertyValue('--ifm-color-primary').trim()"));
+    }
+
     /** The result on the search page that leads to the given route - whatever else the site holds. */
     private static Locator hitTo(Page page, String route) {
         return searchResultsOf(page).and(page.locator("a[href$='" + route + "']"));
@@ -1321,7 +1512,11 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
 
     /** Whether a build of the part newer than the given id has succeeded, whatever asked for it. */
     private boolean succeededBuildOfPartAfter(long previousNewestBuildId, String part) {
-        return history().getList("findAll { it.state == 'SUCCEEDED' && it.part == '%s' }.id".formatted(part),
+        return succeededBuildOfPartAfter(SITE, previousNewestBuildId, part);
+    }
+
+    private boolean succeededBuildOfPartAfter(String site, long previousNewestBuildId, String part) {
+        return history(site).getList("findAll { it.state == 'SUCCEEDED' && it.part == '%s' }.id".formatted(part),
                         Long.class).stream()
                 .anyMatch(id -> id > previousNewestBuildId);
     }
@@ -1408,13 +1603,17 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
 
     /** The newest finished build of that trigger after the given id, whatever became of it, or null. */
     private JsonPath buildAfter(long previousNewestBuildId, String trigger) {
-        JsonPath history = history();
+        return buildAfter(SITE, previousNewestBuildId, trigger);
+    }
+
+    private JsonPath buildAfter(String site, long previousNewestBuildId, String trigger) {
+        JsonPath history = history(site);
         List<Long> ids = history.getList(
                 "findAll { it.trigger == '%s' && it.state != 'RUNNING' }.id".formatted(trigger), Long.class);
         return ids.stream()
                 .filter(id -> id > previousNewestBuildId)
                 .max(Comparator.naturalOrder())
-                .map(id -> readJson(BUILDS_PATH + "/" + id))
+                .map(id -> readJson("/api/sites/" + site + "/builds/" + id))
                 .orElse(null);
     }
 
@@ -1429,7 +1628,11 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
 
     /** The newest build of the site, or zero when it has never been built - the ids come from a sequence. */
     private long newestBuildId() {
-        return buildIds().stream().mapToLong(Long::longValue).max().orElse(0);
+        return newestBuildIdOf(SITE);
+    }
+
+    private long newestBuildIdOf(String site) {
+        return history(site).getList("id", Long.class).stream().mapToLong(Long::longValue).max().orElse(0);
     }
 
     private List<Long> buildIds() {
@@ -1438,11 +1641,15 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
 
     /** The build history of every part of the site, newest first, read with the role that may read it. */
     private JsonPath history() {
+        return history(SITE);
+    }
+
+    private JsonPath history(String site) {
         return given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(operatorToken())
                 .queryParam("limit", 100)
                 .when()
-                .get(BUILDS_PATH)
+                .get("/api/sites/" + site + "/builds")
                 .then()
                 .statusCode(200)
                 .extract()

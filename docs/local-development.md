@@ -125,9 +125,11 @@ The property names the **binary**, not its directory - and the directory it live
 ## Asking for a site to be published
 
 An upload asks for a build of the part of the site that carries its system, and the instance picks that request
-up within `jeap.doc.build.poll-interval` - 30 seconds. On top of that a site no architecture import feeds - which
-this one is - is asked for on `jeap.doc.build.reconcile-cron`, every four hours through the working day. Neither
-is a feedback loop anybody wants while developing, so ask for a build directly with the operator client - see
+up within `jeap.doc.build.poll-interval` - 30 seconds. The default site is also published by every architecture
+import that stores a changed landscape. A site no architecture import feeds - the `handbook` of this example, whose
+one environment has no architecture repository - is asked for on `jeap.doc.build.reconcile-cron` instead, every
+four hours through the working day. None of it is a feedback loop anybody wants while developing, so ask for a
+build directly with the operator client, at `/api/sites/default/builds` or `/api/sites/handbook/builds` - see
 [Publish the site](https://github.com/jme-admin-ch/jme-doc-service-example#publish-the-site-and-read-what-the-generator-did)
 in the README.
 

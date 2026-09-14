@@ -10,7 +10,8 @@
 # What it does, in the order a documentation site comes into being: it checks the machine can do all of it,
 # builds the example, starts the database and the object storage, starts the OAuth mock server, the upstream
 # stub and the doc service, asks for the architecture model to be imported, waits until every part of the site
-# is published, and opens the site in a browser.
+# is published, asks for the second site - the handbook, which no import publishes - and opens the site in a
+# browser.
 #
 # Every step either succeeds or stops the script, and a step that stops it says what failed and where to look -
 # the services log into target/local/.
@@ -28,9 +29,13 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 COMPOSE_FILE="docker/docker-compose.yml"
 LOG_DIR="target/local"
 
-# The one site this instance publishes - see jme-doc-service/src/main/resources/application.yml. Its four
+# The site this script waits for - see jme-doc-service/src/main/resources/application.yml. Its four
 # environments all read the one upstream stub, so nothing below has to name any of them.
 SITE="default"
+
+# The second site, which needs no architecture model: no import publishes it, so it is asked for once the
+# default site is up.
+HANDBOOK_SITE="handbook"
 
 # How long each phase may take before the script gives up on it.
 SERVICE_TIMEOUT=240
@@ -527,6 +532,14 @@ SITE_URL="$DOC_BASE_URL/"
 [[ "$(http_status "$SITE_URL")" == "200" ]] \
     || die "The site is not being served at $SITE_URL." "" "$LOG_DIR/jme-doc-service.log"
 
+# Asked for and not waited for: nothing has been uploaded to the handbook, so what it publishes is its own
+# pages, within seconds.
+HANDBOOK_URL="$DOC_BASE_URL/site/$HANDBOOK_SITE/"
+STATUS=$(api_post "/api/sites/$HANDBOOK_SITE/builds" "$RESPONSE")
+[[ "$STATUS" == "202" ]] \
+    || die "Asking for the handbook to be published answered $STATUS." "$(cat "$RESPONSE")"
+note "the handbook, which no import publishes, was asked for as well"
+
 # --------------------------------------------------------------------------------- 6. the browser
 
 if [[ "$OPEN_BROWSER" -eq 1 ]]; then
@@ -545,6 +558,7 @@ link() { printf '   %s%-24s%s %s\n' "$BLUE" "$1" "$OFF" "$2"; }
 link "The documentation"        "$SITE_URL"
 link "Generated from the model" "$DOC_BASE_URL/systems/jme/"
 link "The search"               "$DOC_BASE_URL/search/"
+link "A site without a model"   "$HANDBOOK_URL"
 link "The API"                  "$DOC_BASE_URL/swagger-ui.html"
 link "The OAuth mock server"    "$AUTH_BASE_URL"
 link "The upstream stub"        "$STUB_BASE_URL"
