@@ -10,8 +10,8 @@
 # What it does, in the order a documentation site comes into being: it checks the machine can do all of it,
 # builds the example, starts the database and the object storage, starts the OAuth mock server, the upstream
 # stub and the doc service, asks for the architecture model to be imported, waits until every part of the site
-# is published, asks for the second site - the handbook, which no import publishes - and opens the site in a
-# browser.
+# is published, uploads the pages of handbook/ to the second site - the handbook, which no import publishes -
+# waits until that is published too, and opens the site in a browser.
 #
 # Every step either succeeds or stops the script, and a step that stops it says what failed and where to look -
 # the services log into target/local/.
@@ -33,9 +33,12 @@ LOG_DIR="target/local"
 # environments all read the one upstream stub, so nothing below has to name any of them.
 SITE="default"
 
-# The second site, which needs no architecture model: no import publishes it, so it is asked for once the
-# default site is up.
+# The second site, which needs no architecture model: no import publishes it and no model puts a system on it,
+# so once the default site is up the script uploads the pages in HANDBOOK_DIR for HANDBOOK_SYSTEM and asks for
+# the handbook to be published.
 HANDBOOK_SITE="handbook"
+HANDBOOK_SYSTEM="jme"
+HANDBOOK_DIR="handbook"
 
 # How long each phase may take before the script gives up on it.
 SERVICE_TIMEOUT=240
@@ -431,6 +434,99 @@ import_state() {
                "$LOG_DIR/jme-doc-service.log"
 }
 
+# Waits until every part of a site is published by a build this run led to, and says so of each part as it is
+# done - a part is twenty to thirty seconds of site generator, and they are generated one after another here.
+await_site_published() {
+    local site="$1" baseline="$2"
+    local builds_path="/api/sites/$site/builds" parts_path="/api/sites/$site/parts"
+    local started reported="" builds failed parts published built wanted line part
+    started=$(date +%s)
+
+    while :; do
+        refresh_operator_token
+
+        # Only the builds this run led to: the containers keep their data, so a second run reads the history
+        # of the first one too.
+        builds=$(api_get "$builds_path" | jq -c --argjson since "$baseline" '[.[] | select(.id > $since)]') \
+            || die "The doc service did not answer the build history of the site '$site'." "" \
+                   "$LOG_DIR/jme-doc-service.log"
+
+        failed=$(jq -c '[.[] | select(.state == "FAILED" or .state == "ABANDONED" or .state == "ABORTED")][0] // empty' \
+            <<<"$builds")
+        if [[ -n "$failed" ]]; then
+            die "The build of the part '$(jq -r '.part' <<<"$failed")' of the site '$site' ended as $(jq -r '.state' <<<"$failed")." \
+                "$(jq -r '.failureReason // "The doc service logged what happened."' <<<"$failed")" \
+                "$LOG_DIR/jme-doc-service.log"
+        fi
+
+        while read -r line; do
+            [[ -z "$line" ]] && continue
+            part=${line%% *}
+            if [[ ",$reported," != *",$part,"* ]]; then
+                reported="$reported,$part"
+                ok "$line"
+            fi
+        done < <(jq -r '.[] | select(.state == "SUCCEEDED" or .state == "SKIPPED")
+                      | "\(.part) - \(if .state == "SKIPPED" then "unchanged" else "\(.pageCount) pages" end), \((.durationMillis / 1000) | floor)s"' \
+                 <<<"$builds")
+
+        parts=$(api_get "$parts_path") \
+            || die "The doc service did not answer the parts of the site '$site'." "" "$LOG_DIR/jme-doc-service.log"
+        wanted=$(jq -r 'length' <<<"$parts")
+        published=$(jq -r 'all(.publishedAt != null and .owedABuild == false)' <<<"$parts")
+        built=$(jq -r '[.[] | select(.state == "SUCCEEDED" or .state == "SKIPPED") | .part] | unique | length' \
+            <<<"$builds")
+        if [[ "$published" == "true" && "$built" -ge "$wanted" ]]; then
+            ok "the site '$site' is published: $wanted parts, $(jq -r 'group_by(.part) | map(max_by(.id).pageCount // 0) | add // 0' <<<"$builds") pages, in $(elapsed "$started")"
+            return 0
+        fi
+
+        [[ $(($(date +%s) - started)) -gt $BUILD_TIMEOUT ]] \
+            && die "The site '$site' was not published within ${BUILD_TIMEOUT}s: $built of $wanted parts are done." \
+                   "" "$LOG_DIR/jme-doc-service.log"
+        progress "generating part $((built + 1)) of $wanted of the site '$site' ($(elapsed "$started"))"
+        sleep 2
+    done
+}
+
+# Uploads handbook/ to the handbook as the documentation set of its system, with the token of that system's doc
+# pipeline and the parameters a doc workflow would send. The provenance is this checkout's, so every page says
+# truthfully where it came from.
+upload_handbook() {
+    local token response bundle status revision ref timestamp repository query
+    response=$(curl -sf --max-time 10 -X POST "$AUTH_BASE_URL/oauth2/token" \
+        -d grant_type=client_credentials -d client_id=jme-doc-pipeline -d client_secret=secret) \
+        || die "The OAuth mock server issued no token for jme-doc-pipeline." \
+               "Is $AUTH_BASE_URL still up?" "$LOG_DIR/jme-doc-auth-scs.log"
+    token=$(jq -er '.access_token' <<<"$response") \
+        || die "The answer of the OAuth mock server carries no access token." "$response"
+
+    # A ZIP of the chapter folders, packed with the JDK's jar tool so that nothing beyond the prerequisites is
+    # needed. Its directory entries are ignored by the doc service.
+    bundle="$LOG_DIR/handbook.zip"
+    rm -f "$bundle"
+    jar --create --no-manifest --file "$bundle" -C "$HANDBOOK_DIR" . \
+        || die "Could not pack $HANDBOOK_DIR/ into $bundle."
+
+    revision=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+    ref=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+    timestamp=$(git log -1 --format=%cI 2>/dev/null || date +%Y-%m-%dT%H:%M:%S%:z)
+    repository=$(git remote get-url origin 2>/dev/null \
+        || echo "ssh://git@bitbucket.bit.admin.ch/bit_jme/jme-doc-service-example.git")
+
+    query="site=$HANDBOOK_SITE&type=system-docs&system=$HANDBOOK_SYSTEM&template=arc42&source-format=markdown"
+    query+="&source-repository=$(jq -rn --arg v "$repository" '$v|@uri')"
+    query+="&source-revision=$(jq -rn --arg v "$revision" '$v|@uri')"
+    query+="&source-ref=$(jq -rn --arg v "$ref" '$v|@uri')"
+    query+="&source-timestamp=$(jq -rn --arg v "$timestamp" '$v|@uri')"
+
+    status=$(curl -s --max-time 60 -o "$RESPONSE" -w '%{http_code}' -X PUT \
+        "$DOC_BASE_URL/api/uploads/docs/$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen)?$query" \
+        -H "Authorization: Bearer $token" -H "Content-Type: application/zip" --data-binary "@$bundle")
+    [[ "$status" == "201" ]] \
+        || die "Uploading the handbook answered $status." "$(cat "$RESPONSE")" "$LOG_DIR/jme-doc-service.log"
+}
+
 refresh_operator_token
 
 BASELINE_BUILD_ID=$(api_get "$BUILDS_PATH" | jq -r '[.[].id] | max // 0') \
@@ -478,69 +574,46 @@ else
     note "the import asked for every part of the site"
 fi
 
-WANTED=$(jq -r 'length' <<<"$PARTS")
-BUILD_STARTED=$(date +%s)
-REPORTED=""
-
-while :; do
-    refresh_operator_token
-
-    # Only the builds this run led to: the containers keep their data, so a second run reads the history of
-    # the first one too.
-    BUILDS=$(api_get "$BUILDS_PATH" | jq -c --argjson since "$BASELINE_BUILD_ID" '[.[] | select(.id > $since)]') \
-        || die "The doc service did not answer the build history." "" "$LOG_DIR/jme-doc-service.log"
-
-    FAILED=$(jq -c '[.[] | select(.state == "FAILED" or .state == "ABANDONED" or .state == "ABORTED")][0] // empty' \
-        <<<"$BUILDS")
-    if [[ -n "$FAILED" ]]; then
-        die "The build of the part '$(jq -r '.part' <<<"$FAILED")' ended as $(jq -r '.state' <<<"$FAILED")." \
-            "$(jq -r '.failureReason // "The doc service logged what happened."' <<<"$FAILED")" \
-            "$LOG_DIR/jme-doc-service.log"
-    fi
-
-    # Each part as it is done, rather than one line once all of them are: a part is twenty to thirty seconds
-    # of site generator, and they are generated one after another here.
-    while read -r line; do
-        [[ -z "$line" ]] && continue
-        part=${line%% *}
-        if [[ ",$REPORTED," != *",$part,"* ]]; then
-            REPORTED="$REPORTED,$part"
-            ok "$line"
-        fi
-    done < <(jq -r '.[] | select(.state == "SUCCEEDED" or .state == "SKIPPED")
-                  | "\(.part) - \(if .state == "SKIPPED" then "unchanged" else "\(.pageCount) pages" end), \((.durationMillis / 1000) | floor)s"' \
-             <<<"$BUILDS")
-
-    PARTS=$(api_get "$PARTS_PATH") \
-        || die "The doc service did not answer the parts of the site." "" "$LOG_DIR/jme-doc-service.log"
-    PUBLISHED=$(jq -r 'all(.publishedAt != null and .owedABuild == false)' <<<"$PARTS")
-    BUILT=$(jq -r '[.[] | select(.state == "SUCCEEDED" or .state == "SKIPPED") | .part] | unique | length' \
-        <<<"$BUILDS")
-    [[ "$PUBLISHED" == "true" && "$BUILT" -ge "$WANTED" ]] && break
-
-    [[ $(($(date +%s) - BUILD_STARTED)) -gt $BUILD_TIMEOUT ]] \
-        && die "The site was not published within ${BUILD_TIMEOUT}s: $BUILT of $WANTED parts are done." \
-               "" "$LOG_DIR/jme-doc-service.log"
-    progress "generating part $((BUILT + 1)) of $WANTED ($(elapsed "$BUILD_STARTED"))"
-    sleep 2
-done
-
-PAGES=$(jq -r '[.[].pageCount] | add // 0' <<<"$BUILDS")
-ok "the site is published: $WANTED parts, $PAGES pages, in $(elapsed "$BUILD_STARTED")"
+await_site_published "$SITE" "$BASELINE_BUILD_ID"
 
 SITE_URL="$DOC_BASE_URL/"
 [[ "$(http_status "$SITE_URL")" == "200" ]] \
     || die "The site is not being served at $SITE_URL." "" "$LOG_DIR/jme-doc-service.log"
 
-# Asked for and not waited for: nothing has been uploaded to the handbook, so what it publishes is its own
-# pages, within seconds.
+# --------------------------------------------------------------------------------- 6. the handbook
+
+step "📘" "Publishing the handbook"
+
+# No import publishes the handbook, and no model puts a system on it: its systems are the ones something was
+# uploaded for. So the script does what the doc pipeline of the system would do - it uploads the system's
+# handbook pages out of handbook/ - and then asks for the whole site, which publishes its own pages too.
 HANDBOOK_URL="$DOC_BASE_URL/site/$HANDBOOK_SITE/"
-STATUS=$(api_post "/api/sites/$HANDBOOK_SITE/builds" "$RESPONSE")
+HANDBOOK_BUILDS_PATH="/api/sites/$HANDBOOK_SITE/builds"
+
+HANDBOOK_BASELINE_BUILD_ID=$(api_get "$HANDBOOK_BUILDS_PATH" | jq -r '[.[].id] | max // 0') \
+    || die "The doc service did not answer the build history of the handbook." "" "$LOG_DIR/jme-doc-service.log"
+
+upload_handbook
+ok "uploaded $(find "$HANDBOOK_DIR" -type f -name '*.md' | wc -l | tr -d ' ') pages of the system $HANDBOOK_SYSTEM from $HANDBOOK_DIR/"
+
+refresh_operator_token
+STATUS=$(api_post "$HANDBOOK_BUILDS_PATH" "$RESPONSE")
 [[ "$STATUS" == "202" ]] \
     || die "Asking for the handbook to be published answered $STATUS." "$(cat "$RESPONSE")"
-note "the handbook, which no import publishes, was asked for as well"
 
-# --------------------------------------------------------------------------------- 6. the browser
+await_site_published "$HANDBOOK_SITE" "$HANDBOOK_BASELINE_BUILD_ID"
+
+# A site published for the first time is served a moment after its build: an instance re-reads which build of
+# a site is published on jeap.doc.publication.refresh rather than per request.
+HANDBOOK_SERVED_STARTED=$(date +%s)
+until [[ "$(http_status "$HANDBOOK_URL")" == "200" ]]; do
+    [[ $(($(date +%s) - HANDBOOK_SERVED_STARTED)) -gt $SERVICE_TIMEOUT ]] \
+        && die "The handbook is not being served at $HANDBOOK_URL." "" "$LOG_DIR/jme-doc-service.log"
+    progress "waiting for the handbook to be served ($(elapsed "$HANDBOOK_SERVED_STARTED"))"
+    sleep 2
+done
+
+# --------------------------------------------------------------------------------- 7. the browser
 
 if [[ "$OPEN_BROWSER" -eq 1 ]]; then
     step "🌐" "Opening the documentation"
@@ -559,6 +632,7 @@ link "The documentation"        "$SITE_URL"
 link "Generated from the model" "$DOC_BASE_URL/systems/jme/"
 link "The search"               "$DOC_BASE_URL/search/"
 link "A site without a model"   "$HANDBOOK_URL"
+link "Uploaded to the handbook" "${HANDBOOK_URL}systems/$HANDBOOK_SYSTEM/"
 link "The API"                  "$DOC_BASE_URL/swagger-ui.html"
 link "The OAuth mock server"    "$AUTH_BASE_URL"
 link "The upstream stub"        "$STUB_BASE_URL"
