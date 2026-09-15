@@ -8,7 +8,10 @@ on:
 jobs:
   build:
     uses: jme-admin-ch/.github/.github/workflows/build.yml@main
+    secrets: inherit
     with:
+      # The end-to-end tests start the doc service, which runs the site generator and refuses to start below Node 24.
+      node-version: '24'
       maven-args: '--batch-mode install'
       triggered-manually: ${{ github.event_name == 'workflow_dispatch' }}
     permissions:
