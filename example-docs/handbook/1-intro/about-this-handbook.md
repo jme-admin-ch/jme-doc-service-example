@@ -14,7 +14,7 @@ uploaded from a Git repository - the pages say which one, and at which revision.
 
 ## Where the pages live
 
-Each page is a Markdown file in the `handbook/` folder of `jme-doc-service-example`, filed under the arc42
+Each page is a Markdown file in the `example-docs/handbook/` folder of `jme-doc-service-example`, filed under the arc42
 chapter it belongs to. `start.sh` uploads that folder to the handbook every time it starts the example, the way a
 doc pipeline would on every push.
 

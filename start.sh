@@ -10,8 +10,8 @@
 # What it does, in the order a documentation site comes into being: it checks the machine can do all of it,
 # builds the example, starts the database and the object storage, starts the OAuth mock server, the upstream
 # stub and the doc service, asks for the architecture model to be imported, waits until every part of the site
-# is published, uploads the pages of handbook/ to the second site - the handbook, which no import publishes -
-# waits until that is published too, and opens the site in a browser.
+# is published, uploads the pages of example-docs/handbook/ to the second site - the handbook, which no import
+# publishes - waits until that is published too, and opens the site in a browser.
 #
 # Every step either succeeds or stops the script, and a step that stops it says what failed and where to look -
 # the services log into target/local/.
@@ -38,7 +38,7 @@ SITE="default"
 # the handbook to be published.
 HANDBOOK_SITE="handbook"
 HANDBOOK_SYSTEM="jme"
-HANDBOOK_DIR="handbook"
+HANDBOOK_DIR="example-docs/handbook"
 
 # How long each phase may take before the script gives up on it.
 SERVICE_TIMEOUT=240
@@ -489,7 +489,7 @@ await_site_published() {
     done
 }
 
-# Uploads handbook/ to the handbook as the documentation set of its system, with the token of that system's doc
+# Uploads HANDBOOK_DIR to the handbook as the documentation set of its system, with the token of that system's doc
 # pipeline and the parameters a doc workflow would send. The provenance is this checkout's, so every page says
 # truthfully where it came from.
 upload_handbook() {
@@ -586,7 +586,7 @@ step "📘" "Publishing the handbook"
 
 # No import publishes the handbook, and no model puts a system on it: its systems are the ones something was
 # uploaded for. So the script does what the doc pipeline of the system would do - it uploads the system's
-# handbook pages out of handbook/ - and then asks for the whole site, which publishes its own pages too.
+# handbook pages out of HANDBOOK_DIR - and then asks for the whole site, which publishes its own pages too.
 HANDBOOK_URL="$DOC_BASE_URL/site/$HANDBOOK_SITE/"
 HANDBOOK_BUILDS_PATH="/api/sites/$HANDBOOK_SITE/builds"
 

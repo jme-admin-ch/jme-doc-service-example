@@ -8,7 +8,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [6.3.1] - 2026-09-15
 
 ### Fixed
-- `start.sh` no longer leaves the handbook empty: it uploads the pages of the new `handbook/` folder for the system `jme` and waits until the handbook is published.
+- `start.sh` no longer leaves the handbook empty: it uploads the pages of the new `example-docs/handbook/` folder for the system `jme` and waits until the handbook is published.
 
 ## [6.3.0] - 2026-09-15
 

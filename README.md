@@ -12,15 +12,15 @@ with the database and the object storage, and an integration test that uploads a
 
 ## The modules
 
-| Module                  | What it is                                                                                                                                                                                          |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jme-doc-service`       | The doc service instance: it depends on `jeap-doc-service-instance` and adds its configuration                                                                                                      |
-| `jme-doc-auth-scs`      | An instance of the [jEAP OAuth mock server](https://github.com/jeap-admin-ch/jeap-oauth-mock-server), issuing the tokens the doc pipelines use                                                      |
-| `jme-doc-upstream-stub` | The upstreams the doc service reads: one small service answering both the `/docs-api` of an architecture repository and the graph API of a reaction observer, over a fixed landscape of two systems |
-| `jme-doc-test`          | The integration test: it starts the three services, imports the model, publishes the site and reads it - over the API and in a browser                                                              |
-| `docker/`               | The database and the object storage the doc service needs, with its bucket and the lifecycle rule expiring the uploaded bundles                                                                     |
-| `docs/`                 | [Running the example on a developer machine](docs/local-development.md) - the prerequisites in full, and what to do when the service does not start                                                 |
-| `handbook/`             | The pages `start.sh` uploads to the second site, the handbook, for the system `jme` - one folder per arc42 chapter                                                                                  |
+| Module                   | What it is                                                                                                                                                                                          |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jme-doc-service`        | The doc service instance: it depends on `jeap-doc-service-instance` and adds its configuration                                                                                                      |
+| `jme-doc-auth-scs`       | An instance of the [jEAP OAuth mock server](https://github.com/jeap-admin-ch/jeap-oauth-mock-server), issuing the tokens the doc pipelines use                                                      |
+| `jme-doc-upstream-stub`  | The upstreams the doc service reads: one small service answering both the `/docs-api` of an architecture repository and the graph API of a reaction observer, over a fixed landscape of two systems |
+| `jme-doc-test`           | The integration test: it starts the three services, imports the model, publishes the site and reads it - over the API and in a browser                                                              |
+| `docker/`                | The database and the object storage the doc service needs, with its bucket and the lifecycle rule expiring the uploaded bundles                                                                     |
+| `docs/`                  | [Running the example on a developer machine](docs/local-development.md) - the prerequisites in full, and what to do when the service does not start                                                 |
+| `example-docs/handbook/` | The pages `start.sh` uploads to the second site, the handbook, for the system `jme` - one folder per arc42 chapter                                                                                  |
 
 ## Roles: a system may only upload its own documentation
 
@@ -70,7 +70,7 @@ Use the provided Maven wrapper to build and run the project.
 The script is every section below in one go: it checks the machine can do all of it, builds the example,
 starts the database and the object storage, starts the three services, asks for the model and the reactions
 of every environment to be imported, waits until every part of the site is published, uploads the pages in
-[`handbook/`](handbook) to the second site and waits until that is published too, and opens the documentation in
+[`example-docs/handbook/`](example-docs/handbook) to the second site and waits until that is published too, and opens the documentation in
 Chrome. Every step
 either succeeds or stops the script with what failed and where to look - the services log into
 `target/local/`. Besides the prerequisites above it needs `curl` and `jq`, and it says so before it does
@@ -478,7 +478,7 @@ documentation of `jme` on the default site is not replaced by it. Chapter 1 of `
 generated page saying that the architecture model does not hold the system - which, for this site, is true. A site
 nobody configures is refused with `400` `UNKNOWN_SITE`, and the answer names the sites there are.
 
-**`start.sh` does exactly that**, so the handbook it opens is not empty: it zips [`handbook/`](handbook) - one
+**`start.sh` does exactly that**, so the handbook it opens is not empty: it zips [`example-docs/handbook/`](example-docs/handbook) - one
 folder per arc42 chapter, the way a repository keeps its `docs/` - uploads it for the system `jme` with the token
 of `jme-doc-pipeline` and the provenance of the checkout, and then publishes the handbook as the operator. To
 change what the handbook shows, edit a page there and start the example again.
