@@ -572,7 +572,11 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
             page.locator("a[href$='/systems/jme/']").first().click();
             page.waitForURL("**/systems/jme/");
 
-            PlaywrightAssertions.assertThat(page.getByText("jme-doc-service").first()).isVisible();
+            // What the page itself says, not what the sidebar happens to show: the tree below a system opens
+            // only along the path to the page the reader is on, so nothing of the system's own chapters is in
+            // the sidebar here. The team and the link into the arc42 tree come from the build of this part.
+            PlaywrightAssertions.assertThat(page.getByText("Responsible team")).isVisible();
+            PlaywrightAssertions.assertThat(page.locator("a[href$='" + SYSTEM_TREE + "']").first()).isVisible();
         }
     }
 
