@@ -1,8 +1,8 @@
 publiccodeYmlVersion: 0.7.0
 name: jme-doc-service-example
 applicationSuite: JME
-softwareVersion: 8.6.0
-releaseDate: 2026-10-07
+softwareVersion: 8.7.0
+releaseDate: 2026-10-09
 url: "https://github.com/jme-admin-ch/jme-doc-service-example.git"
 landingURL: "https://github.com/jme-admin-ch/jme"
 platforms:
