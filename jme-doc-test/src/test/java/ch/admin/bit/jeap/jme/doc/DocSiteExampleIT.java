@@ -737,6 +737,10 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * of them are uploaded before anything is waited for, because they belong to one part and the requests
      * collapse into one build - when they arrive before the first build has started, which is not guaranteed,
      * so each page is waited for on its own.
+     * <p>
+     * <b>An upload asks for the shell as well</b>, so the history after it holds builds of two parts, in an
+     * order the build slot decides. The build of the system's part is therefore looked for by its part, not
+     * taken to be the newest one - the shell finishing last is as likely as not.
      */
     @Test
     @Order(17)
@@ -752,10 +756,10 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
 
         JsonPath build = await().atMost(BUILD_TIMEOUT)
                 .pollInterval(Duration.ofSeconds(1))
-                .until(() -> buildAfter(before, "UPLOAD"), Objects::nonNull);
+                .until(() -> buildAfter(SITE, before, "UPLOAD", JME_PART), Objects::nonNull);
 
-        assertThat(build.getString("part")).isEqualTo(JME_PART);
         assertThat(build.getString("state")).isEqualTo("SUCCEEDED");
+        assertThat(buildAfter(SITE, before, "UPLOAD", ORDERS_PART)).isNull();
     }
 
     /**
@@ -1322,9 +1326,8 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
 
         JsonPath build = await().atMost(BUILD_TIMEOUT)
                 .pollInterval(Duration.ofSeconds(1))
-                .until(() -> buildAfter(HANDBOOK, before, "UPLOAD"), Objects::nonNull);
+                .until(() -> buildAfter(HANDBOOK, before, "UPLOAD", JME_PART), Objects::nonNull);
 
-        assertThat(build.getString("part")).isEqualTo(JME_PART);
         assertThat(build.getString("state")).isEqualTo("SUCCEEDED");
         assertThat(buildAfter(SITE, before, "UPLOAD")).isNull();
         assertThat(readJson(HANDBOOK_SITE_PATH + "/parts").getList("part", String.class))
@@ -1614,6 +1617,19 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
         JsonPath history = history(site);
         List<Long> ids = history.getList(
                 "findAll { it.trigger == '%s' && it.state != 'RUNNING' }.id".formatted(trigger), Long.class);
+        return ids.stream()
+                .filter(id -> id > previousNewestBuildId)
+                .max(Comparator.naturalOrder())
+                .map(id -> readJson("/api/sites/" + site + "/builds/" + id))
+                .orElse(null);
+    }
+
+    /** The newest finished build of that part and trigger after the given id, whatever became of it, or null. */
+    private JsonPath buildAfter(String site, long previousNewestBuildId, String trigger, String part) {
+        JsonPath history = history(site);
+        List<Long> ids = history.getList(
+                "findAll { it.trigger == '%s' && it.part == '%s' && it.state != 'RUNNING' }.id"
+                        .formatted(trigger, part), Long.class);
         return ids.stream()
                 .filter(id -> id > previousNewestBuildId)
                 .max(Comparator.naturalOrder())
