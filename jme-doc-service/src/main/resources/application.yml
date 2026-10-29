@@ -12,6 +12,8 @@ jeap:
   security:
     oauth2:
       resourceserver:
+        resource-id: "https://resources.jme.admin.ch/jme/jme-doc-service"
+        strict-audience-validation: "on"
         # Activates the semantic role model: a role of this instance reads 'jme_%<system>_@uploads_#write'.
         system-name: jme
   swagger:

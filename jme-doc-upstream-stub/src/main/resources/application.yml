@@ -27,6 +27,8 @@ jeap:
   security:
     oauth2:
       resourceserver:
+        resource-id: "https://resources.jme.admin.ch/jme/jme-doc-upstream-stub"
+        strict-audience-validation: "on"
         # The same system name the doc service issues its roles for, so that the token this stub demands is
         # 'jme_@architecture-model_#read' - exactly what the architecture repository of the system would.
         system-name: jme

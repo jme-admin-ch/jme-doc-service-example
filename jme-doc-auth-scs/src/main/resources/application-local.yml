@@ -16,7 +16,7 @@ oauth-mock-data:
       client-secret: "{noop}secret"
       context: "SYS"
       userroles: [ "jme_%jme_@uploads_#write" ]
-      audience: [ "jme-doc-service" ]
+      audience: [ "https://resources.jme.admin.ch/jme/jme-doc-service" ]
 
     # The pipeline of the JME handbook: it may upload the tree of the static site 'handbook' and nothing else.
     # A site-level role, with the site in the tenant part - a static site's tree belongs to no system.
@@ -24,7 +24,7 @@ oauth-mock-data:
       client-secret: "{noop}secret"
       context: "SYS"
       userroles: [ "jme_%handbook_@site-uploads_#write" ]
-      audience: [ "jme-doc-service" ]
+      audience: [ "https://resources.jme.admin.ch/jme/jme-doc-service" ]
 
     # The doc pipeline of another system, used by the integration test to show that it cannot publish into the
     # documentation of the system 'jme'.
@@ -32,14 +32,14 @@ oauth-mock-data:
       client-secret: "{noop}secret"
       context: "SYS"
       userroles: [ "jme_%othersystem_@uploads_#write" ]
-      audience: [ "jme-doc-service" ]
+      audience: [ "https://resources.jme.admin.ch/jme/jme-doc-service" ]
 
     # A client that may read the doc service API, without the right to change any documentation.
     - client-id: "jme-doc-reader"
       client-secret: "{noop}secret"
       context: "SYS"
       userroles: [ "jme_@docs_#read" ]
-      audience: [ "jme-doc-service" ]
+      audience: [ "https://resources.jme.admin.ch/jme/jme-doc-service" ]
 
     # The doc service reading the architecture model of the stubbed upstream. The role carries no tenant
     # part - an architecture model is nobody's system in particular - and it is issued for the audience of
@@ -50,7 +50,7 @@ oauth-mock-data:
       client-secret: "{noop}secret"
       context: "SYS"
       userroles: [ "jme_@architecture-model_#read" ]
-      audience: [ "jme-doc-upstream-stub" ]
+      audience: [ "https://resources.jme.admin.ch/jme/jme-doc-upstream-stub" ]
 
     # The doc service reading the reaction graphs of the stubbed observer. Like the architecture model this
     # role carries no tenant part - what reacted to what is nobody's system in particular - and it is issued
@@ -60,7 +60,7 @@ oauth-mock-data:
       client-secret: "{noop}secret"
       context: "SYS"
       userroles: [ "jme_@reactions_#read" ]
-      audience: [ "jme-doc-upstream-stub" ]
+      audience: [ "https://resources.jme.admin.ch/jme/jme-doc-upstream-stub" ]
 
     # Whoever operates the instance: they may ask for a site to be published and read what the documentation
     # generator has been doing. These two roles carry no tenant part, unlike the upload roles above: a build
@@ -69,4 +69,4 @@ oauth-mock-data:
       client-secret: "{noop}secret"
       context: "SYS"
       userroles: [ "jme_@sites_#admin", "jme_@sites_#read" ]
-      audience: [ "jme-doc-service" ]
+      audience: [ "https://resources.jme.admin.ch/jme/jme-doc-service" ]
