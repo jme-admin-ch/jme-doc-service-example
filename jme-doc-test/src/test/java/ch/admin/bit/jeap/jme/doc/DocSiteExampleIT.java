@@ -112,9 +112,9 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     private static final String SITE = "default";
 
     /**
-     * The second site, which needs no architecture model: its one environment has no architecture repository,
-     * so nothing but an upload and an operator publishes it. It is served below {@code /site/handbook/}, and its
-     * one environment is its main one, so that is also the root of its only tree.
+     * The second site, a static site: a tree of Markdown uploaded for the site itself, with no environments and
+     * no architecture model, so nothing but an upload and an operator publishes it. It is served below
+     * {@code /site/handbook/}, one tree at its root.
      */
     private static final String HANDBOOK = DocumentationSets.HANDBOOK_SITE;
     private static final String HANDBOOK_ROOT = "/site/" + HANDBOOK + "/";
@@ -1236,10 +1236,9 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     }
 
     /**
-     * <b>A second site, and one that needs no architecture model.</b> Its one environment has no architecture
-     * repository behind it, so the import at the start of this suite - which asked for every part of every site
-     * documenting the environments it read - asked for nothing on it, and no system of the model is a part of
-     * it.
+     * <b>A second site, a static site.</b> It has no environments and no architecture model, so the import at
+     * the start of this suite - which asked for every part of every site documenting the environments it read -
+     * asked for nothing on it, and its one part is its shell.
      * <p>
      * Whether it has been published is not asserted: the containers keep their data between runs, so a second
      * run finds what the first one published. Nothing is owed a build either way, because this suite switches
@@ -1248,7 +1247,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      */
     @Test
     @Order(34)
-    void aSiteWithoutAnArchitectureModelIsLeftAloneByTheImport() {
+    void aStaticSiteIsLeftAloneByTheImport() {
         assertThat(readJson("/api/sites").getList("site", String.class)).containsExactlyInAnyOrder(SITE, HANDBOOK);
 
         given().baseUri(DOC_BASE_URL)
@@ -1258,24 +1257,23 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
                 .then()
                 .statusCode(200)
                 .body("title", equalTo(HANDBOOK_TITLE))
-                .body("environments", contains("current"))
+                .body("perEnvironment", equalTo(false))
+                .body("environments", empty())
                 .body("pending", nullValue())
                 .body("running", empty());
         assertThat(readJson(HANDBOOK_SITE_PATH + "/parts").getList("part", String.class))
-                .contains(SHELL_PART)
-                .doesNotContain(ORDERS_PART);
+                .containsExactly(SHELL_PART);
     }
 
     /**
      * An operator publishes it, and it is served below {@code /site/handbook/} with the title and the tagline
-     * it is configured with. Nothing of the model is on it, and the page about the documentation says that the
-     * site does not wait for one - and that an upload is what publishes it.
+     * it is configured with. The page about the documentation names no architecture model: the site reads none,
+     * and no import publishes it.
      */
     @Test
     @Order(35)
-    void anOperatorPublishesTheSiteBelowItsOwnPathWithoutAModel() {
+    void anOperatorPublishesTheStaticSiteBelowItsOwnPath() {
         long before = newestBuildIdOf(HANDBOOK);
-        int parts = readJson(HANDBOOK_SITE_PATH + "/parts").getList("part").size();
 
         given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(operatorToken())
@@ -1284,7 +1282,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
                 .then()
                 .statusCode(202)
                 .body("site", equalTo(HANDBOOK))
-                .body("partsRequested", equalTo(parts));
+                .body("partsRequested", equalTo(1));
 
         await().atMost(BUILD_TIMEOUT)
                 .pollInterval(Duration.ofSeconds(1))
@@ -1306,68 +1304,69 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
                 .then()
                 .statusCode(200)
                 .extract().asString();
-        assertThat(about).containsPattern("Waits for the architecture model(?:\\s|<[^>]*>)*no<")
-                .contains("only when something is uploaded to this site");
+        assertThat(about).doesNotContain("Waits for the architecture model")
+                .doesNotContain("The architecture model is imported");
 
         assertThat(readJson(PARTS_PATH).getList("part", String.class))
                 .containsExactlyInAnyOrder(SHELL_PART, JME_PART, ORDERS_PART);
     }
 
     /**
-     * An upload naming the site is published there, into the part of its system - and only there: the build is
-     * in the handbook's history, and the default site was asked for nothing.
+     * The handbook's pipeline uploads the site's tree, with a role granted for the site: it is published there,
+     * in the site's one part, and the default site was asked for nothing. A system's pipeline may not upload it,
+     * and a system's documentation is refused on a static site.
      */
     @Test
     @Order(36)
-    void anUploadNamingTheSiteIsPublishedThere() {
+    void theTreeOfTheStaticSiteIsUploadedByItsPipelineAndPublishedThere() {
         long before = Math.max(newestBuildIdOf(SITE), newestBuildIdOf(HANDBOOK));
 
-        upload(DocumentationSets.handbookParameters(), DocumentationSets.handbookBundle());
+        uploadAs(handbookToken(), DocumentationSets.handbookParameters(), DocumentationSets.handbookBundle(), 201);
 
         JsonPath build = await().atMost(BUILD_TIMEOUT)
                 .pollInterval(Duration.ofSeconds(1))
-                .until(() -> buildAfter(HANDBOOK, before, "UPLOAD", JME_PART), Objects::nonNull);
+                .until(() -> buildAfter(HANDBOOK, before, "UPLOAD", SHELL_PART), Objects::nonNull);
 
         assertThat(build.getString("state")).isEqualTo("SUCCEEDED");
         assertThat(buildAfter(SITE, before, "UPLOAD")).isNull();
         assertThat(readJson(HANDBOOK_SITE_PATH + "/parts").getList("part", String.class))
-                .containsExactlyInAnyOrder(SHELL_PART, JME_PART);
+                .containsExactly(SHELL_PART);
+
+        uploadAs(uploadToken(), DocumentationSets.handbookParameters(), DocumentationSets.handbookBundle(), 403);
+        Map<String, String> aSystemsDocumentation = DocumentationSets.systemParameters();
+        aSystemsDocumentation.put("site", HANDBOOK);
+        uploadAs(uploadToken(), aSystemsDocumentation, DocumentationSets.handbookBundle(), 400);
     }
 
     /**
-     * What the handbook serves is what was uploaded to it and nothing of the model. The system is one the model
-     * of the default site holds, and on the handbook chapter 1 says the model does not hold it - which is true:
-     * a site reads only the models of its own environments, and this one reads none. And the two sites keep
-     * their sets apart: the default site has no such page, and its own set of the same system is untouched.
+     * What the handbook serves is its tree, at the paths of its folders, and nothing of the model - and the
+     * default site does not gain the page. Both sites carry a tab for each in their header bar.
      */
     @Test
     @Order(37)
-    void theSiteServesWhatWasUploadedAndNothingOfTheModel() {
-        String handbookSystemTree = "/site/" + HANDBOOK + SYSTEM_TREE;
-        String handbookPage = "crosscutting-concepts/" + DocumentationSets.HANDBOOK_PAGE_NAME + "/";
-        awaitServed(handbookSystemTree + handbookPage);
+    void theStaticSiteServesItsTreeAndNothingOfTheModel() {
+        String handbookPage = HANDBOOK_ROOT + DocumentationSets.HANDBOOK_FOLDER + "/"
+                              + DocumentationSets.HANDBOOK_PAGE_NAME + "/";
+        awaitServed(handbookPage);
 
-        given().baseUri(DOC_BASE_URL)
+        String page = given().baseUri(DOC_BASE_URL)
                 .when()
-                .get(handbookSystemTree + handbookPage)
+                .get(handbookPage)
                 .then()
                 .statusCode(200)
                 .body(containsString("How we release"))
                 .body(containsString(DocumentationSets.HANDBOOK_PAGE_TEXT))
                 .body(containsString("Uploaded"))
-                .body(containsString(DocumentationSets.SOURCE_REVISION));
-        given().baseUri(DOC_BASE_URL)
-                .when()
-                .get(handbookSystemTree + "intro/not-in-the-architecture-model/")
-                .then()
-                .statusCode(200);
-        for (String generatedByTheModel : List.of("context-and-scope/", "building-block-view/")) {
-            given().baseUri(DOC_BASE_URL).when().get(handbookSystemTree + generatedByTheModel)
-                    .then().statusCode(404);
-        }
-        given().baseUri(DOC_BASE_URL).when().get(HANDBOOK_ROOT + "systems/orders/").then().statusCode(404);
+                .body(containsString(DocumentationSets.SOURCE_REVISION))
+                .extract().asString();
+        assertThat(page).describedAs("the folder's label from its _category_.json").contains("Working Agreements")
+                .describedAs("a tab per site in the header bar").contains(">Systems<").contains(">Handbook<");
 
-        given().baseUri(DOC_BASE_URL).when().get(SYSTEM_TREE + handbookPage).then().statusCode(404);
+        given().baseUri(DOC_BASE_URL).when().get(HANDBOOK_ROOT + "systems/jme/").then().statusCode(404);
+        given().baseUri(DOC_BASE_URL).when().get(HANDBOOK_ROOT + "systems/orders/").then().statusCode(404);
+        given().baseUri(DOC_BASE_URL).when()
+                .get("/" + DocumentationSets.HANDBOOK_FOLDER + "/" + DocumentationSets.HANDBOOK_PAGE_NAME + "/")
+                .then().statusCode(404);
         given().baseUri(DOC_BASE_URL)
                 .when()
                 .get(SYSTEM_TREE + "constraints/" + DocumentationSets.RAW_HTML_PAGE_NAME + "/")
@@ -1388,7 +1387,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
             assertThat(primaryColourOf(open(context, "/"))).isNotEqualTo(NEUTRAL_PRIMARY_COLOUR);
         }
 
-        String handbookPage = "/site/" + HANDBOOK + SYSTEM_TREE + "crosscutting-concepts/"
+        String handbookPage = HANDBOOK_ROOT + DocumentationSets.HANDBOOK_FOLDER + "/"
                               + DocumentationSets.HANDBOOK_PAGE_NAME + "/";
         await().atMost(BUILD_TIMEOUT)
                 .pollInSameThread()
@@ -1529,6 +1528,18 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     }
 
     /** Uploads a set under a fresh upload id. */
+    private void uploadAs(String token, Map<String, String> parameters, byte[] bundle, int expectedStatus) {
+        given().baseUri(DOC_BASE_URL)
+                .auth().oauth2(token)
+                .contentType("application/zip")
+                .queryParams(parameters)
+                .body(bundle)
+                .when()
+                .put(UPLOAD_PATH + UUID.randomUUID())
+                .then()
+                .statusCode(expectedStatus);
+    }
+
     private void upload(Map<String, String> parameters, byte[] bundle) {
         given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(uploadToken())
@@ -1699,6 +1710,11 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
 
     private String uploadToken() {
         return fetchAccessToken(AUTH_BASE_URL, "jme-doc-pipeline", "secret");
+    }
+
+    /** The pipeline of the handbook, whose role is granted for that site and for no system. */
+    private String handbookToken() {
+        return fetchAccessToken(AUTH_BASE_URL, "jme-handbook-pipeline", "secret");
     }
 
     private String operatorToken() {

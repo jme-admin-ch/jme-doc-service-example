@@ -10,8 +10,8 @@
 # What it does, in the order a documentation site comes into being: it checks the machine can do all of it,
 # builds the example, starts the database and the object storage, starts the OAuth mock server, the upstream
 # stub and the doc service, asks for the architecture model to be imported, waits until every part of the site
-# is published, uploads the pages of example-docs/handbook/ to the second site - the handbook, which no import
-# publishes - waits until that is published too, and opens the site in a browser.
+# is published, uploads the tree of example-docs/handbook/ to the second site - the handbook, a static site no
+# import publishes - waits until that is published too, and opens the site in a browser.
 #
 # Every step either succeeds or stops the script, and a step that stops it says what failed and where to look -
 # the services log into target/local/.
@@ -33,11 +33,10 @@ LOG_DIR="target/local"
 # environments all read the one upstream stub, so nothing below has to name any of them.
 SITE="default"
 
-# The second site, which needs no architecture model: no import publishes it and no model puts a system on it,
-# so once the default site is up the script uploads the pages in HANDBOOK_DIR for HANDBOOK_SYSTEM and asks for
-# the handbook to be published.
+# The second site, a static site: a tree of Markdown uploaded for the site itself and published as it is. No
+# import publishes it, so once the default site is up the script uploads HANDBOOK_DIR as the site's tree and asks
+# for the handbook to be published.
 HANDBOOK_SITE="handbook"
-HANDBOOK_SYSTEM="jme"
 HANDBOOK_DIR="example-docs/handbook"
 
 # How long each phase may take before the script gives up on it.
@@ -489,20 +488,20 @@ await_site_published() {
     done
 }
 
-# Uploads HANDBOOK_DIR to the handbook as the documentation set of its system, with the token of that system's doc
-# pipeline and the parameters a doc workflow would send. The provenance is this checkout's, so every page says
-# truthfully where it came from.
+# Uploads HANDBOOK_DIR as the tree of the handbook, with the token of the handbook's pipeline - a site-level role,
+# granted for the site rather than for a system - and the parameters a doc workflow would send: the site and no
+# system or template. The provenance is this checkout's, so every page says truthfully where it came from.
 upload_handbook() {
     local token response bundle status revision ref timestamp repository query
     response=$(curl -sf --max-time 10 -X POST "$AUTH_BASE_URL/oauth2/token" \
-        -d grant_type=client_credentials -d client_id=jme-doc-pipeline -d client_secret=secret) \
-        || die "The OAuth mock server issued no token for jme-doc-pipeline." \
+        -d grant_type=client_credentials -d client_id=jme-handbook-pipeline -d client_secret=secret) \
+        || die "The OAuth mock server issued no token for jme-handbook-pipeline." \
                "Is $AUTH_BASE_URL still up?" "$LOG_DIR/jme-doc-auth-scs.log"
     token=$(jq -er '.access_token' <<<"$response") \
         || die "The answer of the OAuth mock server carries no access token." "$response"
 
-    # A ZIP of the chapter folders, packed with the JDK's jar tool so that nothing beyond the prerequisites is
-    # needed. Its directory entries are ignored by the doc service.
+    # A ZIP of the tree, packed with the JDK's jar tool so that nothing beyond the prerequisites is needed. Its
+    # directory entries are ignored by the doc service.
     bundle="$LOG_DIR/handbook.zip"
     rm -f "$bundle"
     jar --create --no-manifest --file "$bundle" -C "$HANDBOOK_DIR" . \
@@ -514,7 +513,7 @@ upload_handbook() {
     repository=$(git remote get-url origin 2>/dev/null \
         || echo "ssh://git@bitbucket.bit.admin.ch/bit_jme/jme-doc-service-example.git")
 
-    query="site=$HANDBOOK_SITE&type=system-docs&system=$HANDBOOK_SYSTEM&template=arc42&source-format=markdown"
+    query="site=$HANDBOOK_SITE&type=site-docs&source-format=markdown"
     query+="&source-repository=$(jq -rn --arg v "$repository" '$v|@uri')"
     query+="&source-revision=$(jq -rn --arg v "$revision" '$v|@uri')"
     query+="&source-ref=$(jq -rn --arg v "$ref" '$v|@uri')"
@@ -584,24 +583,34 @@ SITE_URL="$DOC_BASE_URL/"
 
 step "📘" "Publishing the handbook"
 
-# No import publishes the handbook, and no model puts a system on it: its systems are the ones something was
-# uploaded for. So the script does what the doc pipeline of the system would do - it uploads the system's
-# handbook pages out of HANDBOOK_DIR - and then asks for the whole site, which publishes its own pages too.
+# No import publishes the handbook: its content is the tree uploaded for it. So the script does what the
+# handbook's pipeline would do - it uploads HANDBOOK_DIR as the site's tree - and the upload asks for the site to
+# be published. The script then waits until nothing is owed to the handbook any more: a tree that changed is
+# built, and one that is already published is not built again.
 HANDBOOK_URL="$DOC_BASE_URL/site/$HANDBOOK_SITE/"
-HANDBOOK_BUILDS_PATH="/api/sites/$HANDBOOK_SITE/builds"
-
-HANDBOOK_BASELINE_BUILD_ID=$(api_get "$HANDBOOK_BUILDS_PATH" | jq -r '[.[].id] | max // 0') \
-    || die "The doc service did not answer the build history of the handbook." "" "$LOG_DIR/jme-doc-service.log"
+HANDBOOK_SITE_PATH="/api/sites/$HANDBOOK_SITE"
 
 upload_handbook
-ok "uploaded $(find "$HANDBOOK_DIR" -type f -name '*.md' | wc -l | tr -d ' ') pages of the system $HANDBOOK_SYSTEM from $HANDBOOK_DIR/"
+ok "uploaded the tree of the handbook from $HANDBOOK_DIR/: $(find "$HANDBOOK_DIR" -type f -name '*.md' | wc -l | tr -d ' ') pages"
 
 refresh_operator_token
-STATUS=$(api_post "$HANDBOOK_BUILDS_PATH" "$RESPONSE")
-[[ "$STATUS" == "202" ]] \
-    || die "Asking for the handbook to be published answered $STATUS." "$(cat "$RESPONSE")"
-
-await_site_published "$HANDBOOK_SITE" "$HANDBOOK_BASELINE_BUILD_ID"
+HANDBOOK_STARTED=$(date +%s)
+while :; do
+    HANDBOOK_STATUS=$(api_get "$HANDBOOK_SITE_PATH") \
+        || die "The doc service did not answer the state of the handbook." "" "$LOG_DIR/jme-doc-service.log"
+    if jq -e '.pending == null and (.running | length) == 0' <<<"$HANDBOOK_STATUS" >/dev/null; then
+        jq -e '.lastBuild.state != "FAILED"' <<<"$HANDBOOK_STATUS" >/dev/null \
+            || die "The handbook could not be published." "$(jq -r '.lastBuild.failureReason' <<<"$HANDBOOK_STATUS")" \
+                   "$LOG_DIR/jme-doc-service.log"
+        clear_progress
+        ok "the site '$HANDBOOK_SITE' is published: $(jq -r '.published.pageCount // 0' <<<"$HANDBOOK_STATUS") pages, in $(elapsed "$HANDBOOK_STARTED")"
+        break
+    fi
+    [[ $(($(date +%s) - HANDBOOK_STARTED)) -gt $BUILD_TIMEOUT ]] \
+        && die "The handbook was not published within ${BUILD_TIMEOUT}s." "" "$LOG_DIR/jme-doc-service.log"
+    progress "generating the handbook ($(elapsed "$HANDBOOK_STARTED"))"
+    sleep 2
+done
 
 # A site published for the first time is served a moment after its build: an instance re-reads which build of
 # a site is published on jeap.doc.publication.refresh rather than per request.
@@ -631,8 +640,8 @@ link() { printf '   %s%-24s%s %s\n' "$BLUE" "$1" "$OFF" "$2"; }
 link "The documentation"        "$SITE_URL"
 link "Generated from the model" "$DOC_BASE_URL/systems/jme/"
 link "The search"               "$DOC_BASE_URL/search/"
-link "A site without a model"   "$HANDBOOK_URL"
-link "Uploaded to the handbook" "${HANDBOOK_URL}systems/$HANDBOOK_SYSTEM/"
+link "The handbook"             "$HANDBOOK_URL"
+link "Uploaded to the handbook" "${HANDBOOK_URL}intro/about-this-handbook/"
 link "The API"                  "$DOC_BASE_URL/swagger-ui.html"
 link "The OAuth mock server"    "$AUTH_BASE_URL"
 link "The upstream stub"        "$STUB_BASE_URL"

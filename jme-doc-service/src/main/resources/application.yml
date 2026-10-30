@@ -71,22 +71,17 @@ jeap:
       # each environment (jeap.doc.archrepo, configured per profile) and from what was uploaded to it.
       default:
         title: JME Documentation
-      # A second site, served at /site/handbook/, that needs no architecture model. Its one environment has
-      # no architecture repository behind it - 'current' is deliberately absent from jeap.doc.archrepo and
-      # jeap.doc.reactions - so no import publishes it and no landscape appears on it: its systems are the
-      # ones something was uploaded for, published by the upload itself or by an operator. An environment
-      # names a stage, and one called 'prod' would put the whole landscape of that stage on this site too.
-      #
-      # architecture-model-required is what the site says about itself: with no architecture repository it
-      # changes no build, but the page about the documentation reports it, and the site stays publishable if
-      # its environment is ever mapped onto one.
+        # The tab of this site in the header bar, which every site of an instance with several sites shows.
+        # Beside the logo, every site shows the default site's title.
+        navigation-label: Systems
+      # A second site, served at /site/handbook/: the handbook of the JME team, a tree of Markdown uploaded for
+      # the site itself and published as it is - its folders and _category_.json files are its navigation, and
+      # nothing is generated into it. It has no environments, so it is one tree at its root, and no
+      # architecture model: no import publishes it, an upload of its tree does. See example-docs/handbook/.
       handbook:
         title: JME Handbook
         tagline: How the JME team works
+        navigation-label: Handbook
         color-scheme: neutral
-        architecture-model-required: false
-        environments:
-          - id: current
-            label: Current
-            main: true
-            latest: true
+        per-environment: false
+        content: static-site

@@ -5,7 +5,7 @@ description: The rules the JME team has agreed on and that every change is held 
 
 # Working Agreements
 
-These are not the constraints of a system but of a team. They are few on purpose, and each one exists because
+These are the rules of a team rather than of a system. They are few on purpose, and each one exists because
 the team once missed it.
 
 | Agreement                                     | Why                                                                        |

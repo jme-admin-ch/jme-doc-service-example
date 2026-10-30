@@ -18,6 +18,14 @@ oauth-mock-data:
       userroles: [ "jme_%jme_@uploads_#write" ]
       audience: [ "jme-doc-service" ]
 
+    # The pipeline of the JME handbook: it may upload the tree of the static site 'handbook' and nothing else.
+    # A site-level role, with the site in the tenant part - a static site's tree belongs to no system.
+    - client-id: "jme-handbook-pipeline"
+      client-secret: "{noop}secret"
+      context: "SYS"
+      userroles: [ "jme_%handbook_@site-uploads_#write" ]
+      audience: [ "jme-doc-service" ]
+
     # The doc pipeline of another system, used by the integration test to show that it cannot publish into the
     # documentation of the system 'jme'.
     - client-id: "other-system-doc-pipeline"

@@ -20,7 +20,7 @@ with the database and the object storage, and an integration test that uploads a
 | `jme-doc-test`           | The integration test: it starts the three services, imports the model, publishes the site and reads it - over the API and in a browser                                                              |
 | `docker/`                | The database and the object storage the doc service needs, with its bucket and the lifecycle rule expiring the uploaded bundles                                                                     |
 | `docs/`                  | [Running the example on a developer machine](docs/local-development.md) - the prerequisites in full, and what to do when the service does not start                                                 |
-| `example-docs/handbook/` | The pages `start.sh` uploads to the second site, the handbook, for the system `jme` - one folder per arc42 chapter                                                                                  |
+| `example-docs/handbook/` | The tree `start.sh` uploads to the second site, the handbook - a static site, whose folders and their `_category_.json` are its navigation                                                        |
 
 ## Roles: a system may only upload its own documentation
 
@@ -33,6 +33,7 @@ documentation is a separate resource, `docs`. The clients are configured in
 | Client                      | Secret   | Role                                    | May                                                     |
 | --------------------------- | -------- | --------------------------------------- | ------------------------------------------------------- |
 | `jme-doc-pipeline`          | `secret` | `jme_%jme_@uploads_#write`              | upload the documentation of the system `jme`            |
+| `jme-handbook-pipeline`     | `secret` | `jme_%handbook_@site-uploads_#write`    | upload the tree of the static site `handbook`           |
 | `other-system-doc-pipeline` | `secret` | `jme_%othersystem_@uploads_#write`      | upload the documentation of another system              |
 | `jme-doc-reader`            | `secret` | `jme_@docs_#read`                       | read the doc service API                                |
 | `jme-doc-operator`          | `secret` | `jme_@sites_#admin`, `jme_@sites_#read` | ask for a site to be published, and read what was built |
@@ -70,7 +71,7 @@ Use the provided Maven wrapper to build and run the project.
 The script is every section below in one go: it checks the machine can do all of it, builds the example,
 starts the database and the object storage, starts the three services, asks for the model and the reactions
 of every environment to be imported, waits until every part of the site is published, uploads the pages in
-[`example-docs/handbook/`](example-docs/handbook) to the second site and waits until that is published too, and opens the documentation in
+[`example-docs/handbook/`](example-docs/handbook) to the second site, a static site, and waits until that is published too, and opens the documentation in
 Chrome. Every step
 either succeeds or stops the script with what failed and where to look - the services log into
 `target/local/`. Besides the prerequisites above it needs `curl` and `jq`, and it says so before it does
@@ -422,8 +423,8 @@ Before the first build, all of them answer `503` with a page saying the document
 ### A second site, without an architecture model
 
 One instance serves as many documentation sites as it configures, each one published whole with its own
-navigation, its own look and its own search. This example configures a second one, the **handbook** of the
-system `jme`, in [`application.yml`](jme-doc-service/src/main/resources/application.yml):
+navigation, its own look and its own search. This example configures a second one, the **handbook** of the JME
+team, in [`application.yml`](jme-doc-service/src/main/resources/application.yml):
 
 ```yaml
 jeap:
@@ -431,24 +432,25 @@ jeap:
     sites:
       default:
         title: JME Documentation
+        navigation-label: Systems
       handbook:
         title: JME Handbook
         tagline: How the JME team works
+        navigation-label: Handbook
         color-scheme: neutral
-        architecture-model-required: false
-        environments:
-          - id: current
-            label: Current
-            main: true
-            latest: true
+        per-environment: false
+        content: static-site
 ```
 
-**It needs no architecture model.** An environment names a stage, and every environment an architecture
-repository is configured for puts that stage's landscape on the site - so the handbook's one environment,
-`current`, is configured under neither `jeap.doc.archrepo` nor `jeap.doc.reactions`. No import ever publishes the
-handbook, and no system of the model appears on it: its systems are the ones something was uploaded for.
-`architecture-model-required: false` is what the site says about itself - the page about the documentation
-reports it, and the site stays publishable if its environment is ever mapped onto an architecture repository.
+**It is a static site.** `content: static-site` makes it a tree of Markdown uploaded for the site itself and
+published as it is: its folders and their `_category_.json` files are the navigation, a number in front of a file
+name orders the pages of a folder, and nothing is generated into it - no structure template, no system, no
+chapter. `per-environment: false` makes it one tree served at the site root, with no environment switcher and no
+banner: a handbook describes how a team works, not a stage. No import publishes it and no system of the model
+appears on it.
+
+**Both sites show a tab for each** in their header bar, labelled with their `navigation-label`, and the default
+site's title beside the logo.
 
 Every site but the default one is served below `/site/<id>/`, so the handbook is at
 http://localhost:8080/jme-doc-service/site/handbook/, its search at `…/site/handbook/search/`. Until something asks
@@ -459,29 +461,30 @@ curl -i -X POST http://localhost:8080/jme-doc-service/api/sites/handbook/builds 
   -H "Authorization: Bearer $ADMIN"
 ```
 
-And a pipeline puts documentation on it by naming the site in its upload - the token, the role and every other
-parameter are the ones it uses for the default site, because what a pipeline may change is decided per system
-and not per site:
+And its pipeline uploads its tree for the site itself - naming the site and no system or template, with a token
+of `jme-handbook-pipeline`, whose role is granted for that site:
 
 ```shell
 curl -i -X PUT "http://localhost:8080/jme-doc-service/api/uploads/docs/$(uuidgen)\
-?site=handbook&type=system-docs&system=jme&template=arc42&source-format=markdown\
+?site=handbook&type=site-docs&source-format=markdown\
 &source-repository=ssh://git@bitbucket.example.ch/bit_jme/jme-doc-service-example.git\
 &source-revision=9a1c2f8&source-ref=main&source-timestamp=2026-08-21T09:12:00%2B02:00" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $HANDBOOK_TOKEN" \
   -H "Content-Type: application/zip" \
-  --data-binary @docs.zip
+  --data-binary @handbook.zip
 ```
 
-That upload publishes the part of `jme` on the handbook, and only there: a set belongs to one site, so the
-documentation of `jme` on the default site is not replaced by it. Chapter 1 of `jme` on the handbook carries the
-generated page saying that the architecture model does not hold the system - which, for this site, is true. A site
-nobody configures is refused with `400` `UNKNOWN_SITE`, and the answer names the sites there are.
+A tree replaces the site's previous tree whole, and the upload asks for the site to be published. The token of a
+system's pipeline answers `403` - a system's role does not reach a static site - and a system's documentation
+naming the handbook is refused with `400`: a static site documents no system. A site nobody configures is refused
+with `400` `UNKNOWN_SITE`, and the answer names the sites there are. The tree is removed again with
+`DELETE /jme-doc-service/api/docs/custom/sites?site=handbook`.
 
-**`start.sh` does exactly that**, so the handbook it opens is not empty: it zips [`example-docs/handbook/`](example-docs/handbook) - one
-folder per arc42 chapter, the way a repository keeps its `docs/` - uploads it for the system `jme` with the token
-of `jme-doc-pipeline` and the provenance of the checkout, and then publishes the handbook as the operator. To
-change what the handbook shows, edit a page there and start the example again.
+**`start.sh` does exactly that**, so the handbook it opens is not empty: it zips
+[`example-docs/handbook/`](example-docs/handbook) - the folders `intro/`, `working-agreements/`, `decisions/` and
+`glossary/` - uploads it with the token of `jme-handbook-pipeline` and the provenance of the checkout, and waits
+until the build the upload asked for is done. A tree that has not changed since the last start is not built again.
+To change what the handbook shows, edit a page there and start the example again.
 
 ### What the bucket keeps, and for how long
 
@@ -576,14 +579,14 @@ frame its own origin, and nothing but a microsite is answered cross-origin. The 
 Markdown and the text inside the microsite, the chips narrow the results by kind, and a hit inside the microsite
 opens its frame at that file. Removing the microsite takes its files at once and its page with the next build.
 
-It also covers **the second site**, the handbook, which needs no architecture model: the import published every
-part of the default site and asked for nothing on it, none of the model's systems is a part of it, an operator
-publishes it below `/site/handbook/` with its title and tagline and a page about the documentation saying that it
-does not wait for the model, an upload naming the site is built into the handbook's part of `jme` and into no part
-of the default site, the page is served there beside the page saying the model does not hold the system and without
-any chapter the model would have written, the default site neither gains the page nor loses its own set of `jme`,
-and in the browser the handbook is drawn in its own colour scheme and searches an index of its own in both
-directions.
+It also covers **the second site**, the handbook, a static site: the import published every part of the default
+site and asked for nothing on it, it has no environments and one part, an operator publishes it below
+`/site/handbook/` with its title and tagline and a page about the documentation that names no architecture model,
+its pipeline uploads its tree with a role granted for the site and the upload is built into the handbook and into
+no part of the default site, a system's pipeline may not upload it and a system's documentation is refused on it,
+the uploaded page is served at the path of its folder with the folder's label and a tab for each site in the
+header bar, nothing of the model is on it and the default site does not gain the page, and in the browser the
+handbook is drawn in its own colour scheme and searches an index of its own in both directions.
 
 It also covers the **second upstream**: that the three reaction indexes were read and their graphs stored, and
 that the runtime views they are drawn into are served - chapter 6 of a system and of a component, with the

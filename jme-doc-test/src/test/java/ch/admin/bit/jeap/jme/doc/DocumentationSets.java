@@ -396,28 +396,35 @@ final class DocumentationSets {
 
     // --- The second site -------------------------------------------------------------------------------------
 
-    /** The second site this example configures: one that needs no architecture model. */
+    /** The second site this example configures: a static site, a tree uploaded for the site itself. */
     static final String HANDBOOK_SITE = "handbook";
 
-    /** The page the system uploads to the handbook: its chapter folder and its name without the extension. */
-    static final String HANDBOOK_CHAPTER = "8-crosscutting-concepts";
+    /** The folder of the handbook's tree the test uploads a page into, and the page's name without extension. */
+    static final String HANDBOOK_FOLDER = "working-agreements";
     static final String HANDBOOK_PAGE_NAME = "how-we-release";
     static final String HANDBOOK_PAGE_TEXT = "A release of JME is ratified by two maintainers before it is tagged.";
 
     /** A word on the handbook's page and on no page of the default site, so each site's search can be asked. */
     static final String ON_THE_HANDBOOK_ONLY = "ratified";
 
-    /** The system's own set once more, for the handbook: the same parameters, naming the site. */
+    /** The handbook's tree, as its pipeline uploads it: the site, and no system, template or version. */
     static Map<String, String> handbookParameters() {
-        Map<String, String> parameters = systemParameters();
+        Map<String, String> parameters = new LinkedHashMap<>();
         parameters.put("site", HANDBOOK_SITE);
+        parameters.put("type", "site-docs");
+        parameters.put("source-format", "markdown");
+        parameters.putAll(provenance());
         return parameters;
     }
 
+    /** A tree of one folder, labelled by its _category_.json, with one page in it. */
     static byte[] handbookBundle() {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try (ZipOutputStream zip = new ZipOutputStream(bytes)) {
-            write(zip, HANDBOOK_CHAPTER + "/" + HANDBOOK_PAGE_NAME + ".md", """
+            write(zip, HANDBOOK_FOLDER + "/_category_.json", """
+                    {"label": "Working Agreements", "position": 1}
+                    """);
+            write(zip, HANDBOOK_FOLDER + "/" + HANDBOOK_PAGE_NAME + ".md", """
                     ---
                     title: How we release
                     description: What happens between a merged change and a tagged release.
