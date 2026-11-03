@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.4.0] - 2026-11-03
+
+### Changed
+- The handbook is a static site: one tree at `/site/handbook/` without environments, uploaded by its own pipeline client `jme-handbook-pipeline` with the site-level role, and linked as a tab in the header bar.
+
+### Dependencies
+- **ch.admin.bit.jeap:jeap-doc-service-instance**: 4.3.0 → 4.4.0 (minor)
+- **ch.admin.bit.jeap:jeap-doc-site**: 4.3.0 → 4.4.0 (minor)
+
 ## [9.3.0] - 2026-11-03
 
 ### Dependencies
