@@ -1,0 +1,103 @@
+# What the stubbed Governance Service reports about the landscape - see GovernanceFixture.java.
+#
+# Only the rules, their exemptions and the violations they found are written down. Everything else the
+# Governance Service reports is computed from them over the components of landscape.yml: the state of every
+# rule on every component, the scores, the conformance rates, their daily history and their trends. A component
+# a rule found nothing wrong with is compliant.
+#
+# Days are counted back from the day the rules were last evaluated, which is the current day. A date written
+# here would leave the history empty a month after it was written.
+stub:
+  governance:
+    trend-period-days: 30
+    rules:
+
+      - rule-id: "dependencies-current"
+        name: "Dependencies are kept current"
+        weight: 3
+        # A violation counts only once it has lasted this long. Until then the component is reported compliant
+        # and is listed in the rule's violation grace period.
+        violation-delay: "P7D"
+        parameters:
+          - { name: "max-age", value: "P90D" }
+        explanation: |
+          A component whose dependencies fall behind collects security fixes it does not have, and every
+          upgrade it postpones makes the next one larger.
+
+          # How it is checked
+
+          Every dependency of the build is compared with the newest release of the same major version. A
+          dependency is out of date when that release is older than `max-age`.
+
+          # How to comply
+
+          - Let the dependency bot open its pull requests, and merge them.
+          - Upgrade a dependency the bot cannot update by hand.
+
+          See [Keeping dependencies current](https://example.org/handbook/dependencies) for the details.
+        violations:
+          - component: "orders-payment-scs"
+            comment: "Three dependencies are older than 90 days"
+            details:
+              - "payment-client 2.1.0"
+              - "pdf-renderer 0.9.4"
+              - "retry-support 1.0.2"
+            since-days-ago: 12
+          # Found two days ago, so it is still within the seven days of the violation delay.
+          - component: "jme-doc-auth-scs"
+            comment: "One dependency is older than 90 days"
+            details:
+              - "token-tools 3.2.0"
+            since-days-ago: 2
+
+      - rule-id: "readme-present"
+        name: "A README describes the component"
+        weight: 2
+        explanation: |
+          The README is the first page a newcomer reads. It says what the component does, how to build it and
+          who owns it.
+
+          # How to comply
+
+          Add a `README.md` to the root of the repository.
+        violations:
+          - component: "orders-intake"
+            comment: "No README.md at the root of the repository"
+            since-days-ago: 6
+          # Found before the trend period began and fixed nine days ago, which is what makes the score of its
+          # component and its system rise.
+          - component: "jme-doc-service"
+            comment: "The README.md is empty"
+            since-days-ago: 40
+            fixed-days-ago: 9
+
+      - rule-id: "contracts-verified"
+        name: "Consumer contracts are verified"
+        weight: 2
+        explanation: |
+          A provider that verifies its consumers' contracts finds out before a release that it would break one
+          of them.
+        exemptions:
+          # Temporary, so the rule is paused for the component until the day it ends.
+          - id: "orders-intake-contracts"
+            component: "orders-intake"
+            reason: "Its only consumer is being replaced"
+            ends-in-days: 21
+
+      # No explanation, so its page says that the rule has none.
+      - rule-id: "logs-structured"
+        name: "Logs are structured"
+        weight: 1
+        exemptions:
+          # Permanent, so the rule is disabled for the component.
+          - id: "auth-scs-logs"
+            component: "jme-doc-auth-scs"
+            reason: "A mock server whose logs nobody collects"
+
+      # Not active, so it is evaluated for no component and its page shows its explanation only.
+      - rule-id: "no-legacy-build-file"
+        name: "No legacy build file"
+        active: false
+        explanation: |
+          A repository builds with one build tool. A second build file left over from a migration is read by
+          nothing and misleads everyone who finds it.

@@ -26,9 +26,10 @@ import org.springframework.security.web.SecurityFilterChain;
  * protection, because their caller holds a token and no cookie; the actuator open, because a test that waits
  * for this service has to be able to ask whether it is up.
  * <p>
- * <b>Two upstreams, two chains</b>, matching the two path roots the two of them serve - the architecture
- * repository's {@code /docs-api} and the reaction observer's {@code /api}. Which role each demands is on the
- * controller: they are different resources, and a token for one is not a token for the other.
+ * <b>Three upstreams, three chains</b>, matching the path roots they serve - the architecture repository's
+ * {@code /docs-api}, the reaction observer's {@code /api} and the Governance Service's
+ * {@code /governance/docs-api}. Which role each demands is on the controller: they are different resources, and
+ * a token for one is not a token for the other.
  */
 @Configuration
 @EnableMethodSecurity
@@ -51,6 +52,21 @@ public class StubSecurityConfiguration {
                                                    AuthoritiesResolver authorities) throws Exception {
         return http
                 .securityMatcher("/docs-api/**")
+                .authorizeHttpRequests(requests -> requests.anyRequest().fullyAuthenticated())
+                .csrf(AbstractHttpConfigurer::disable)
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .oauth2ResourceServer(resourceServer -> resourceServer.jwt(jwt -> jwt
+                        .decoder(jwtDecoders.createJwtDecoder())
+                        .jwtAuthenticationConverter(new JeapAuthenticationConverter(authorities))))
+                .build();
+    }
+
+    @Bean
+    @Order(Ordered.LOWEST_PRECEDENCE - 12)
+    SecurityFilterChain governanceSecurityFilterChain(HttpSecurity http, JeapJwtDecoderFactory jwtDecoders,
+                                                      AuthoritiesResolver authorities) throws Exception {
+        return http
+                .securityMatcher("/governance/**")
                 .authorizeHttpRequests(requests -> requests.anyRequest().fullyAuthenticated())
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))

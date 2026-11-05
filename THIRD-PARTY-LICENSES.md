@@ -10,6 +10,7 @@ Apache License Version 2.0
 
  * ch.admin.bit.jeap:jeap-doc-archrepo - [ch.admin.bit.jeap:jeap-doc-archrepo](https://github.com/jeap-admin-ch/jeap-doc-service/tree/main/jeap-doc-archrepo)
  * ch.admin.bit.jeap:jeap-doc-domain - [ch.admin.bit.jeap:jeap-doc-domain](https://github.com/jeap-admin-ch/jeap-doc-service/tree/main/jeap-doc-domain)
+ * ch.admin.bit.jeap:jeap-doc-governance - [ch.admin.bit.jeap:jeap-doc-governance](https://github.com/jeap-admin-ch/jeap-doc-service/tree/main/jeap-doc-governance)
  * ch.admin.bit.jeap:jeap-doc-html - [ch.admin.bit.jeap:jeap-doc-html](https://github.com/jeap-admin-ch/jeap-doc-service/tree/main/jeap-doc-html)
  * ch.admin.bit.jeap:jeap-doc-markdown - [ch.admin.bit.jeap:jeap-doc-markdown](https://github.com/jeap-admin-ch/jeap-doc-service/tree/main/jeap-doc-markdown)
  * ch.admin.bit.jeap:jeap-doc-metrics - [ch.admin.bit.jeap:jeap-doc-metrics](https://github.com/jeap-admin-ch/jeap-doc-service/tree/main/jeap-doc-metrics)

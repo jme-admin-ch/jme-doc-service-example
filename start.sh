@@ -11,7 +11,8 @@
 # builds the example, starts the database and the object storage, starts the OAuth mock server, the upstream
 # stub and the doc service, asks for the architecture model to be imported, waits until every part of the site
 # is published, uploads the tree of example-docs/handbook/ to the second site - the handbook, a static site no
-# import publishes - waits until that is published too, and opens the site in a browser.
+# import publishes - waits until that is published too, reports a completed scoring run of the Governance
+# Service so that the third site, the governance site, is published, and opens the site in a browser.
 #
 # Every step either succeeds or stops the script, and a step that stops it says what failed and where to look -
 # the services log into target/local/.
@@ -38,6 +39,11 @@ SITE="default"
 # for the handbook to be published.
 HANDBOOK_SITE="handbook"
 HANDBOOK_DIR="example-docs/handbook"
+
+# The third site: the reports of the Governance Service, which the upstream stub answers too. The governance
+# import publishes it, so the script reports a completed scoring run to the webhook the way the Governance
+# Service does.
+GOVERNANCE_SITE="governance"
 
 # How long each phase may take before the script gives up on it.
 SERVICE_TIMEOUT=240
@@ -476,7 +482,7 @@ await_site_published() {
         built=$(jq -r '[.[] | select(.state == "SUCCEEDED" or .state == "SKIPPED") | .part] | unique | length' \
             <<<"$builds")
         if [[ "$published" == "true" && "$built" -ge "$wanted" ]]; then
-            ok "the site '$site' is published: $wanted parts, $(jq -r 'group_by(.part) | map(max_by(.id).pageCount // 0) | add // 0' <<<"$builds") pages, in $(elapsed "$started")"
+            ok "the site '$site' is published: $wanted part$([[ $wanted == 1 ]] || echo s), $(jq -r 'group_by(.part) | map(max_by(.id).pageCount // 0) | add // 0' <<<"$builds") pages, in $(elapsed "$started")"
             return 0
         fi
 
@@ -622,7 +628,45 @@ until [[ "$(http_status "$HANDBOOK_URL")" == "200" ]]; do
     sleep 2
 done
 
-# --------------------------------------------------------------------------------- 7. the browser
+# --------------------------------------------------------------------------------- 7. the governance site
+
+step "📊" "Publishing the governance site"
+
+# The Governance Service calls the webhook after every completed scoring run, with a client of its own, and the
+# import that follows publishes the site. The stub reports a new scoring run each time it starts, so the import
+# always finds the indexes changed and asks for a build.
+GOVERNANCE_URL="$DOC_BASE_URL/site/$GOVERNANCE_SITE/"
+
+refresh_operator_token
+GOVERNANCE_BASELINE=$(api_get "/api/sites/$GOVERNANCE_SITE/builds" | jq -r '[.[].id] | max // 0') \
+    || die "The doc service did not answer the build history of the governance site." "" \
+           "$LOG_DIR/jme-doc-service.log"
+
+NOTIFIER_RESPONSE=$(curl -sf --max-time 10 -X POST "$AUTH_BASE_URL/oauth2/token" \
+    -d grant_type=client_credentials -d client_id=jme-governance-notifier -d client_secret=secret) \
+    || die "The OAuth mock server issued no token for jme-governance-notifier." \
+           "Is $AUTH_BASE_URL still up?" "$LOG_DIR/jme-doc-auth-scs.log"
+NOTIFIER_TOKEN=$(jq -er '.access_token' <<<"$NOTIFIER_RESPONSE") \
+    || die "The answer of the OAuth mock server carries no access token." "$NOTIFIER_RESPONSE"
+SCORING_RUN=$(jq -cn --arg id "$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen)" \
+    --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{eventId: $id, scoredAt: $at}')
+STATUS=$(curl -s --max-time 30 -o "$RESPONSE" -w '%{http_code}' -X POST "$DOC_BASE_URL/api/governance/webhook" \
+    -H "Authorization: Bearer $NOTIFIER_TOKEN" -H "Content-Type: application/json" -d "$SCORING_RUN")
+[[ "$STATUS" == "202" ]] \
+    || die "Reporting a completed scoring run answered $STATUS." "$(cat "$RESPONSE")" "$LOG_DIR/jme-doc-service.log"
+note "the reports of the Governance Service are read from $STUB_BASE_URL/governance"
+
+await_site_published "$GOVERNANCE_SITE" "$GOVERNANCE_BASELINE"
+
+GOVERNANCE_SERVED_STARTED=$(date +%s)
+until [[ "$(http_status "$GOVERNANCE_URL")" == "200" ]]; do
+    [[ $(($(date +%s) - GOVERNANCE_SERVED_STARTED)) -gt $SERVICE_TIMEOUT ]] \
+        && die "The governance site is not being served at $GOVERNANCE_URL." "" "$LOG_DIR/jme-doc-service.log"
+    progress "waiting for the governance site to be served ($(elapsed "$GOVERNANCE_SERVED_STARTED"))"
+    sleep 2
+done
+
+# --------------------------------------------------------------------------------- 8. the browser
 
 if [[ "$OPEN_BROWSER" -eq 1 ]]; then
     step "🌐" "Opening the documentation"
@@ -642,6 +686,7 @@ link "Generated from the model" "$DOC_BASE_URL/systems/jme/"
 link "The search"               "$DOC_BASE_URL/search/"
 link "The handbook"             "$HANDBOOK_URL"
 link "Uploaded to the handbook" "${HANDBOOK_URL}intro/about-this-handbook/"
+link "The governance site"      "$GOVERNANCE_URL"
 link "The API"                  "$DOC_BASE_URL/swagger-ui.html"
 link "The OAuth mock server"    "$AUTH_BASE_URL"
 link "The upstream stub"        "$STUB_BASE_URL"

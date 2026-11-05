@@ -12,15 +12,15 @@ with the database and the object storage, and an integration test that uploads a
 
 ## The modules
 
-| Module                   | What it is                                                                                                                                                                                          |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jme-doc-service`        | The doc service instance: it depends on `jeap-doc-service-instance` and adds its configuration                                                                                                      |
-| `jme-doc-auth-scs`       | An instance of the [jEAP OAuth mock server](https://github.com/jeap-admin-ch/jeap-oauth-mock-server), issuing the tokens the doc pipelines use                                                      |
-| `jme-doc-upstream-stub`  | The upstreams the doc service reads: one small service answering both the `/docs-api` of an architecture repository and the graph API of a reaction observer, over a fixed landscape of two systems |
-| `jme-doc-test`           | The integration test: it starts the three services, imports the model, publishes the site and reads it - over the API and in a browser                                                              |
-| `docker/`                | The database and the object storage the doc service needs, with its bucket and the lifecycle rule expiring the uploaded bundles                                                                     |
-| `docs/`                  | [Running the example on a developer machine](docs/local-development.md) - the prerequisites in full, and what to do when the service does not start                                                 |
-| `example-docs/handbook/` | The tree `start.sh` uploads to the second site, the handbook - a static site, whose folders and their `_category_.json` are its navigation                                                        |
+| Module                   | What it is                                                                                                                                                                                                                              |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jme-doc-service`        | The doc service instance: it depends on `jeap-doc-service-instance` and adds its configuration                                                                                                                                          |
+| `jme-doc-auth-scs`       | An instance of the [jEAP OAuth mock server](https://github.com/jeap-admin-ch/jeap-oauth-mock-server), issuing the tokens the doc pipelines use                                                                                          |
+| `jme-doc-upstream-stub`  | The upstreams the doc service reads: one small service answering the `/docs-api` of an architecture repository, the graph API of a reaction observer and the `/docs-api` of a Governance Service, over a fixed landscape of two systems |
+| `jme-doc-test`           | The integration test: it starts the three services, imports the model, publishes the site and reads it - over the API and in a browser                                                                                                  |
+| `docker/`                | The database and the object storage the doc service needs, with its bucket and the lifecycle rule expiring the uploaded bundles                                                                                                         |
+| `docs/`                  | [Running the example on a developer machine](docs/local-development.md) - the prerequisites in full, and what to do when the service does not start                                                                                     |
+| `example-docs/handbook/` | The tree `start.sh` uploads to the second site, the handbook - a static site, whose folders and their `_category_.json` are its navigation                                                                                              |
 
 ## Roles: a system may only upload its own documentation
 
@@ -39,6 +39,8 @@ documentation is a separate resource, `docs`. The clients are configured in
 | `jme-doc-operator`          | `secret` | `jme_@sites_#admin`, `jme_@sites_#read` | ask for a site to be published, and read what was built |
 | `jme-doc-archrepo-reader`   | `secret` | `jme_@architecture-model_#read`         | read the architecture model from the upstream           |
 | `jme-doc-reactions-reader`  | `secret` | `jme_@reactions_#read`                  | read the observed reactions from the upstream           |
+| `jme-doc-governance-reader` | `secret` | `jme_@governance-documentation_#read`   | read the governance reports from the upstream           |
+| `jme-governance-notifier`   | `secret` | `jme_@governance-notifications_#write`  | report a completed scoring run to the webhook           |
 
 **The `sites` roles carry no tenant part**, and that is the difference that matters: an upload role is granted
 per system so that a pipeline can only change its own documentation, while a build regenerates the whole site
@@ -71,8 +73,9 @@ Use the provided Maven wrapper to build and run the project.
 The script is every section below in one go: it checks the machine can do all of it, builds the example,
 starts the database and the object storage, starts the three services, asks for the model and the reactions
 of every environment to be imported, waits until every part of the site is published, uploads the pages in
-[`example-docs/handbook/`](example-docs/handbook) to the second site, a static site, and waits until that is published too, and opens the documentation in
-Chrome. Every step
+[`example-docs/handbook/`](example-docs/handbook) to the second site, a static site, and waits until that is published too,
+reports a completed scoring run so that the third site, the governance site, is published, and opens the
+documentation in Chrome. Every step
 either succeeds or stops the script with what failed and where to look - the services log into
 `target/local/`. Besides the prerequisites above it needs `curl` and `jq`, and it says so before it does
 anything.
@@ -247,7 +250,7 @@ http://localhost:8080/jme-doc-service/systems/jme/ and under each of `/dev/`, `/
 
 **The observed reactions** are the second, and they come from a different upstream: the
 [reaction observer](https://github.com/jeap-admin-ch/jeap-reaction-observer-service) of the stage, which
-watches what actually reacts to what at runtime. The doc service imports them as steps of the same
+watches what actually reacts to what at runtime. The doc service imports them as a step of the same
 architecture import - a reaction means nothing until its names are resolved against the model - and draws them
 as the runtime views of a system, of a component and of a message. `jme-doc-upstream-stub` answers for the
 observer too, out of the same landscape, so what the site shows in chapter 6 cannot contradict what it shows
@@ -486,6 +489,51 @@ with `400` `UNKNOWN_SITE`, and the answer names the sites there are. The tree is
 until the build the upload asked for is done. A tree that has not changed since the last start is not built again.
 To change what the handbook shows, edit a page there and start the example again.
 
+### A third site: the governance reports
+
+The third site, **governance**, shows how well the systems follow the platform's rules: the score of every system
+and component, how it developed, and how well each rule is complied with. Nothing is uploaded for it and no
+structure template writes it. It is generated from the reports of a Governance Service, which the doc service
+imports:
+
+```yaml
+jeap:
+  doc:
+    sites:
+      governance:
+        title: JME Governance
+        tagline: How well the JME systems follow the platform's rules
+        navigation-label: Governance
+        color-scheme: neutral
+        per-environment: false
+        content: governance
+        publish-on-upload: false
+    governance:
+      url: http://localhost:8082/jme-doc-upstream-stub/governance
+      client-registration: governance
+```
+
+**The upstream stub plays the Governance Service.** It serves the Governance Service's `/docs-api` below
+`/governance`, because its root `/docs-api` is the architecture repository's. The reports are computed from
+[`governance.yml`](jme-doc-upstream-stub/src/main/resources/governance.yml): five rules, the violations and
+exemptions of the components of the stubbed landscape, and how many days ago each began. So the site shows a
+system that improved, one that got worse, a violation still in its grace period, a paused and a permanent
+exemption, and an inactive rule. The stub reports a new scoring run each time it starts.
+
+**The Governance Service calls a webhook** after every completed scoring run, and the import it asks for publishes
+the site. The token of `jme-governance-notifier` may call it:
+
+```shell
+curl -i -X POST http://localhost:8080/jme-doc-service/api/governance/webhook \
+  -H "Authorization: Bearer <token of jme-governance-notifier>" \
+  -H "Content-Type: application/json" \
+  -d "{\"eventId\": \"$(uuidgen)\", \"scoredAt\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}"
+```
+
+It answers `202`, and the site is published at http://localhost:8080/jme-doc-service/site/governance/ a few
+seconds later. A schedule imports the reports as well, as the safety net for a lost call. **`start.sh` calls the
+webhook** and waits until the site is published.
+
 ### What the bucket keeps, and for how long
 
 Nothing in the object storage is kept indefinitely, and what removes it is not the same thing for both kinds.
@@ -588,8 +636,13 @@ the uploaded page is served at the path of its folder with the folder's label an
 header bar, nothing of the model is on it and the default site does not gain the page, and in the browser the
 handbook is drawn in its own colour scheme and searches an index of its own in both directions.
 
-It also covers the **second upstream**: that the three reaction indexes were read and their graphs stored, and
-that the runtime views they are drawn into are served - chapter 6 of a system and of a component, with the
+It also covers **the third site**, the governance site: a completed scoring run reported to the webhook publishes
+it, its pages show the scores and the conformance of the stubbed reports and link systems, components and rules
+to one another, only the Governance Service's client may call the webhook, and the score history is drawn as a
+chart in light and in dark mode.
+
+It also covers the **second upstream**: that the complete reaction graph was read and stored, and
+that the runtime views it is drawn into are served - chapter 6 of a system and of a component, with the
 message and the component the observer saw in them.
 
 In the browser it covers the four things no HTTP assertion can see: that a system of the model is reachable
@@ -604,12 +657,13 @@ Everything this example configures is in three files:
 
 - [`jme-doc-service/src/main/resources/application.yml`](jme-doc-service/src/main/resources/application.yml) -
   the name of the system the semantic roles are issued for (`jme`), the bucket of the documentation, the size
-  limit of an upload, how long an upload is kept, the two documentation sites this instance publishes and what they
+  limit of an upload, how long an upload is kept, the three documentation sites this instance publishes and what they
   are called, and where the site generator finds Node and the site template's dependencies
 - [`application-local.yml`](jme-doc-service/src/main/resources/application-local.yml) - database, object storage,
   OAuth issuer and the origin the site is published under, all of the developer machine, plus the two upstreams
   of each environment: the architecture repository under `jeap.doc.archrepo` and the reaction observer under
-  `jeap.doc.reactions`, each with a client registration of its own
+  `jeap.doc.reactions`, each with a client registration of its own - and the one Governance Service of the
+  instance under `jeap.doc.governance`
 - [`application-ci.yml`](jme-doc-service/src/main/resources/application-ci.yml) - the same, with the containers
   reached under their compose service names
 

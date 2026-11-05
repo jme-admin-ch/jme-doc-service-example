@@ -30,10 +30,17 @@ spring:
             client-id: jme-doc-reactions-reader
             client-secret: secret
             authorization-grant-type: client_credentials
+          # The token the governance reports are read with, carrying 'jme_@governance-documentation_#read'.
+          governance:
+            client-id: jme-doc-governance-reader
+            client-secret: secret
+            authorization-grant-type: client_credentials
         provider:
           archrepo:
             token-uri: http://localhost:8081/jme-doc-auth-scs/oauth2/token
           reactions:
+            token-uri: http://localhost:8081/jme-doc-auth-scs/oauth2/token
+          governance:
             token-uri: http://localhost:8081/jme-doc-auth-scs/oauth2/token
 
 jeap:
@@ -87,6 +94,13 @@ jeap:
         prod:
           url: http://localhost:8082/jme-doc-upstream-stub
           client-registration: reactions
+    governance:
+      # Where the reports of the governance site are read from: the upstream stub of this example, which serves
+      # the Governance Service's /docs-api below /governance - its root /docs-api is the architecture
+      # repository's. The doc service appends the paths it asks for to this URL, so the prefix is all it takes.
+      # One Governance Service for the whole instance, not one per environment.
+      url: http://localhost:8082/jme-doc-upstream-stub/governance
+      client-registration: governance
   security:
     oauth2:
       resourceserver:

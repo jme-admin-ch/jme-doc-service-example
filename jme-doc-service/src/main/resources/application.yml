@@ -64,7 +64,7 @@ jeap:
       node-command: node
     sites:
       # The documentation sites of this instance. One site is one published whole - one navigation, one
-      # layout - and this example publishes two.
+      # layout - and this example publishes three.
       #
       # The default site is served at the context root and is the one an upload naming no site belongs to.
       # Everything else about it is left at the defaults of the doc service: the four environments
@@ -87,3 +87,18 @@ jeap:
         color-scheme: neutral
         per-environment: false
         content: static-site
+      # A third site, served at /site/governance/: the reports of the Governance Service - the score of every
+      # system and component, its history, and how well each rule is complied with. Nothing is uploaded for it
+      # and no structure template writes it: it is generated from what the governance import read, which runs
+      # when the Governance Service reports a completed scoring run and on a schedule as the safety net. Like
+      # the handbook it has no environments, because a landscape has one Governance Service. The Governance
+      # Service is configured per profile (jeap.doc.governance).
+      governance:
+        title: JME Governance
+        tagline: How well the JME systems follow the platform's rules
+        navigation-label: Governance
+        color-scheme: neutral
+        per-environment: false
+        content: governance
+        # Published by the governance import only; nothing is ever uploaded for this site.
+        publish-on-upload: false

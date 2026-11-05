@@ -12,6 +12,7 @@ import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.TimeoutError;
 import com.microsoft.playwright.assertions.PlaywrightAssertions;
 import com.microsoft.playwright.options.AriaRole;
+import com.microsoft.playwright.options.ColorScheme;
 import io.restassured.path.json.JsonPath;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -31,6 +32,7 @@ import software.amazon.awssdk.services.s3.model.Tag;
 
 import java.net.URI;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -90,6 +92,10 @@ import static org.hamcrest.Matchers.nullValue;
  * part so that a pipeline can only change its own documentation, while a build regenerates a part with the
  * documentation of every repository in it - so it is granted on a resource of its own that no pipeline holds.
  * <p>
+ * <b>A third site is the Governance Service's reports</b>, read from the same stub. Nothing uploads it and the
+ * architecture import does not publish it: the Governance Service reports a completed scoring run to the doc
+ * service's webhook, and the import that follows publishes the site.
+ * <p>
  * The tests are ordered because they are one story. That several triggers collapse into a single build is not
  * asserted here - that is the doc service's own behaviour and is covered there. This suite is about the
  * instance being wired up correctly.
@@ -125,8 +131,17 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     /** The primary colour of the {@code neutral} scheme the handbook is configured with. */
     private static final String NEUTRAL_PRIMARY_COLOUR = "#414c57";
 
+    /**
+     * The third site: the reports of the Governance Service, with no environments, served below
+     * {@code /site/governance/}. The governance import publishes it, and nothing else does.
+     */
+    private static final String GOVERNANCE = "governance";
+    private static final String GOVERNANCE_ROOT = "/site/" + GOVERNANCE + "/";
+    private static final String GOVERNANCE_TITLE = "JME Governance";
+    private static final String GOVERNANCE_WEBHOOK_PATH = "/api/governance/webhook";
+
     /** A site nobody configures - a typo, as far as the instance can tell. */
-    private static final String UNCONFIGURED_SITE = "governance";
+    private static final String UNCONFIGURED_SITE = "intranet";
 
     /**
      * The environments of the site. All four read an architecture model here, and all four read the same one:
@@ -167,9 +182,8 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     /** The tree of the system the uploads of this suite document, below the tree of an environment. */
     private static final String SYSTEM_TREE = "/systems/" + DocumentationSets.SYSTEM + "/system-architecture/";
 
-    /** The three steps that read the reaction observer rather than the architecture repository. */
-    private static final List<String> REACTION_KINDS =
-            List.of("SYSTEM_REACTIONS", "COMPONENT_REACTIONS", "MESSAGE_REACTIONS");
+    /** The step that reads the reaction observer rather than the architecture repository. */
+    private static final List<String> REACTION_KINDS = List.of("FULL_REACTIONS");
 
     /** What the search downloads: one index over the whole site, published beside the parts it covers. */
     private static final String SEARCH_INDEX = "/pagefind/pagefind.js";
@@ -210,6 +224,9 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
             Pattern.compile("<img[^>]*alt=\"" + Pattern.quote(DocumentationSets.IMAGE_ALT) + "\"[^>]*>");
     /** Quoted or not: the published HTML is minified, and a value without spaces loses its quotes. */
     private static final Pattern SOURCE = Pattern.compile("\\ssrc=(?:\"([^\"]+)\"|([^\\s\"'>]+))");
+
+    /** A link target the minified HTML left unquoted. */
+    private static final Pattern UNQUOTED_HREF = Pattern.compile("href=([^\"'\\s>]+)");
 
     /** What the site of this example calls itself - configured in the instance, and read back off the page. */
     private static final String SITE_TITLE = "JME Documentation";
@@ -255,15 +272,17 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
 
     /**
      * Three services: the OAuth mock server issuing every token, the upstream stub holding the architecture
-     * model, and the doc service.
+     * model, the reactions and the governance reports, and the doc service.
      * <p>
      * Four settings of the doc service are the suite's rather than the instance's, and each one is here to
      * make an outcome of this suite the outcome of something it did:
      * <ul>
-     *   <li>where the upstream stub is - for every environment, because all four read it - since it runs on a
-     *       free port here rather than on the 8082 the instance configures;
-     *   <li>no import on startup and no import schedule, so the only import that happens is the one this
-     *       suite asks for - which is what lets it show the site before the model and after it;
+     *   <li>where the upstream stub is - for every environment, because all four read it, and for the
+     *       Governance Service - since it runs on a free port here rather than on the 8082 the instance
+     *       configures;
+     *   <li>no import on startup and no import schedule, of the architecture or of the Governance Service, so
+     *       the only import that happens is the one this suite asks for - which is what lets it show the site
+     *       before the model and after it;
      *   <li>the poll interval, so a build starts seconds after it is asked for instead of within half a
      *       minute;
      *   <li>the publication URL, which names the origin in the metadata of the generated pages.
@@ -294,6 +313,10 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
                 "jeap.doc.build.poll-interval", "PT" + POLL_INTERVAL_SECONDS + "S",
                 "jeap.doc.build.reconcile-cron", "-",
                 "jeap.doc.publication.url", "http://localhost:" + DOC_PORT));
+        docService.put("spring.security.oauth2.client.provider.governance.token-uri",
+                AUTH_BASE_URL + "/oauth2/token");
+        docService.put("jeap.doc.governance.url", STUB_BASE_URL + "/governance");
+        docService.put("jeap.doc.governance.import.cron", "");
         ENVIRONMENTS.forEach(environment -> {
             docService.put("jeap.doc.archrepo.environments." + environment + ".url", STUB_BASE_URL);
             docService.put("jeap.doc.reactions.environments." + environment + ".url", STUB_BASE_URL);
@@ -478,12 +501,12 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
 
     /**
      * The reactions, which are the <b>second upstream</b> of a documentation site: the reaction observer of
-     * the environment, read as steps of the same import and drawn as the runtime views of a system, a
+     * the environment, read as a step of the same import and drawn as the runtime views of a system, a
      * component and a message.
      * <p>
      * The stub answers for the observer as well as for the architecture repository, so what this asserts is
-     * the whole of that integration in this instance: a second client registration, a second role, the three
-     * replication indexes, and the pages the graphs end up on.
+     * the whole of that integration in this instance: a second client registration, a second role, the complete
+     * graph of the environment, and the pages it ends up on.
      */
     @Test
     @Order(7)
@@ -497,7 +520,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
                     .as("the %s of %s were imported", kind, ENVIRONMENT)
                     .isNotNull();
             assertThat(imports.getInt(step + ".itemCount"))
-                    .as("graphs of %s stored for %s", kind, ENVIRONMENT)
+                    .as("nodes of the %s graph stored for %s", kind, ENVIRONMENT)
                     .isPositive();
             assertThat(imports.getString(step + ".failureReason")).isNull();
         }
@@ -604,9 +627,9 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     }
 
     /**
-     * And the reaction graph, which is the other renderer: a runtime view is a <b>GraphViz</b> source block
-     * where a context view is a PlantUML one, so a plugin registered for the one and not the other is a page
-     * of source text that every HTTP assertion above passes.
+     * And the reaction graph, which is the other renderer: a runtime view is drawn by an interactive viewer in
+     * the reader's browser where a context view is a PlantUML source block, so a viewer that fails to load or
+     * to read its graph is a page every HTTP assertion above passes.
      */
     @Test
     @Order(12)
@@ -614,14 +637,14 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
         try (BrowserContext context = browser.newContext()) {
             Page page = open(context, "/" + ENVIRONMENT + SYSTEM_REACTIONS);
 
-            Locator diagram = page.locator("[data-plantuml-diagram] svg:has(text)").first();
-            PlaywrightAssertions.assertThat(diagram).isVisible();
-            // What proves the source was parsed is the content: nothing at all is drawn for one that is not.
-            // The labels are the names without the suffix every component and message type carries - a
-            // picture says what it is of in the room it has, and the table beside it carries both in full.
-            PlaywrightAssertions.assertThat(diagram).containsText("jme-doc");
-            PlaywrightAssertions.assertThat(diagram).containsText("OrdersPaymentAccepted");
-            PlaywrightAssertions.assertThat(diagram).not().containsText("Syntax Error");
+            // The viewer draws on a canvas once it has read the published graph, and it does so only when it
+            // approaches the viewport - so it is brought there first.
+            Locator viewer = page.locator("section[aria-label='Reaction chains']").first();
+            viewer.scrollIntoViewIfNeeded();
+            PlaywrightAssertions.assertThat(viewer.locator("canvas").first()).isVisible();
+            // What proves the graph was read is the content: the table beside the picture carries the names.
+            PlaywrightAssertions.assertThat(page.locator("table[data-reaction-table]").first())
+                    .containsText(REACTING_COMPONENT);
         }
     }
 
@@ -1248,7 +1271,8 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     @Test
     @Order(34)
     void aStaticSiteIsLeftAloneByTheImport() {
-        assertThat(readJson("/api/sites").getList("site", String.class)).containsExactlyInAnyOrder(SITE, HANDBOOK);
+        assertThat(readJson("/api/sites").getList("site", String.class))
+                .containsExactlyInAnyOrder(SITE, HANDBOOK, GOVERNANCE);
 
         given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(operatorToken())
@@ -1416,6 +1440,121 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     }
 
     /**
+     * The Governance Service reports a completed scoring run, and the import that follows publishes the
+     * governance site: its one part, the shell. The stub reports a new scoring run each time it starts, so the
+     * import finds the indexes changed on every run of this suite, also against containers that kept the data
+     * of an earlier one.
+     */
+    @Test
+    @Order(40)
+    void aCompletedScoringRunReportedToTheWebhookPublishesTheGovernanceSite() {
+        long before = newestBuildIdOf(GOVERNANCE);
+
+        given().baseUri(DOC_BASE_URL)
+                .auth().oauth2(governanceNotifierToken())
+                .contentType("application/json")
+                .body("""
+                        {"eventId": "%s", "scoredAt": "%s"}""".formatted(UUID.randomUUID(), Instant.now()))
+                .when()
+                .post(GOVERNANCE_WEBHOOK_PATH)
+                .then()
+                .statusCode(202);
+
+        await().atMost(BUILD_TIMEOUT)
+                .pollInterval(Duration.ofSeconds(1))
+                .until(() -> succeededBuildOfPartAfter(GOVERNANCE, before, SHELL_PART));
+        awaitServed(GOVERNANCE_ROOT);
+
+        assertThat(readJson("/api/sites/" + GOVERNANCE + "/parts").getList("part", String.class))
+                .containsExactly(SHELL_PART);
+        assertThat(pageOf(GOVERNANCE_ROOT))
+                .contains(GOVERNANCE_TITLE)
+                .contains(linkTo("systems/jme/"))
+                .contains(linkTo("systems/orders/"))
+                .describedAs("the score of orders, the average of its two components").contains("65%");
+    }
+
+    /**
+     * What the pages say follows from the stub's governance.yml. A system links its components, a component
+     * its rules, and a rule's page links the systems and components it reports on - in its conformance by
+     * system, its non-compliant components and its violation grace period.
+     */
+    @Test
+    @Order(41)
+    void theGovernanceSiteLinksSystemsComponentsAndRules() {
+        assertThat(pageOf(GOVERNANCE_ROOT + "systems/orders/"))
+                .contains("Score history")
+                .contains(linkTo("systems/orders/components/orders-intake/"))
+                .contains(linkTo("systems/orders/components/orders-payment-scs/"));
+
+        assertThat(pageOf(GOVERNANCE_ROOT + "systems/orders/components/orders-payment-scs/"))
+                .contains("Three dependencies are older than 90 days")
+                .contains(linkTo("rules/dependencies-current/"));
+        assertThat(pageOf(GOVERNANCE_ROOT + "systems/jme/components/jme-doc-auth-scs/"))
+                .describedAs("a violation within the violation delay").contains("Violation grace period ends at");
+
+        assertThat(pageOf(GOVERNANCE_ROOT + "rules/dependencies-current/"))
+                .contains("How it is checked")
+                .contains("By system")
+                .contains(linkTo("systems/jme/"))
+                .contains(linkTo("systems/orders/"))
+                .describedAs("the conformance of orders, one of its two components").contains("50%")
+                .contains("Non-compliant components")
+                .contains(linkTo("systems/orders/components/orders-payment-scs/"))
+                .contains("Violation grace period")
+                .contains(linkTo("systems/jme/components/jme-doc-auth-scs/"));
+
+        assertThat(pageOf(GOVERNANCE_ROOT + "rules/"))
+                .contains(linkTo("rules/no-legacy-build-file/"))
+                .describedAs("the share of a rule of weight 3 in a total of 8").contains("37.5%");
+        assertThat(pageOf(GOVERNANCE_ROOT + "rules/no-legacy-build-file/"))
+                .contains("A second build file left over from a migration")
+                .describedAs("an inactive rule shows its explanation only").doesNotContain("By system");
+    }
+
+    /**
+     * Only the Governance Service may call the webhook: an operator, who may publish every site, may not, and a
+     * call without the scoring run's event ID is refused.
+     */
+    @Test
+    @Order(42)
+    void onlyTheGovernanceServiceReportsAScoringRun() {
+        given().baseUri(DOC_BASE_URL)
+                .auth().oauth2(operatorToken())
+                .contentType("application/json")
+                .body("""
+                        {"eventId": "%s"}""".formatted(UUID.randomUUID()))
+                .when()
+                .post(GOVERNANCE_WEBHOOK_PATH)
+                .then()
+                .statusCode(403);
+        given().baseUri(DOC_BASE_URL)
+                .auth().oauth2(governanceNotifierToken())
+                .contentType("application/json")
+                .body("{}")
+                .when()
+                .post(GOVERNANCE_WEBHOOK_PATH)
+                .then()
+                .statusCode(400);
+    }
+
+    /** In the browser: a score history is drawn as a chart, with a line that shows in light and dark mode. */
+    @Test
+    @Order(43)
+    void theScoreHistoryIsDrawnAsAChart() {
+        for (ColorScheme scheme : List.of(ColorScheme.LIGHT, ColorScheme.DARK)) {
+            try (BrowserContext context =
+                         browser.newContext(new Browser.NewContextOptions().setColorScheme(scheme))) {
+                Page page = open(context, GOVERNANCE_ROOT + "systems/jme/");
+                Locator chart = page.locator("article .docusaurus-mermaid-container svg");
+                PlaywrightAssertions.assertThat(chart).hasAttribute("aria-roledescription", "xychart");
+                PlaywrightAssertions.assertThat(chart.locator("g.line-plot-0 path"))
+                        .hasAttribute("stroke", "#3498db");
+            }
+        }
+    }
+
+    /**
      * Asking for the whole site: the answer is a {@code 202} saying how many parts are now owed a build and
      * how long it takes at most until an instance claims one. It is the forcing kind of ask - every part is
      * published whether its content moved or not - which is what an operator wants after a change outside the
@@ -1425,7 +1564,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * exactly what is already published, and the suite has read everything it came for.
      */
     @Test
-    @Order(40)
+    @Order(44)
     void askingForTheWholeSiteAsksForEveryPartOfIt() {
         given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(operatorToken())
@@ -1441,6 +1580,20 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     /** Uploads the documentation set of this example under a fresh upload id. */
     private void upload(Map<String, String> parameters) {
         upload(parameters, DocumentationSets.bundle());
+    }
+
+    /**
+     * A page as it is served, read without a token like a reader's browser does. The served HTML is minified
+     * and leaves a link's target unquoted where it can, so every target is quoted here for {@link #linkTo}.
+     */
+    private static String pageOf(String path) {
+        String page = given().baseUri(DOC_BASE_URL).when().get(path).then().statusCode(200).extract().asString();
+        return UNQUOTED_HREF.matcher(page).replaceAll("href=\"$1\"");
+    }
+
+    /** A link to a page of the governance site, as the browser is handed it: below the site's base URL. */
+    private static String linkTo(String pathBelowTheSite) {
+        return "href=\"/jme-doc-service" + GOVERNANCE_ROOT + pathBelowTheSite + "\"";
     }
 
     /** Waits until a page is served, for the pages the collapsed builds of the uploads publish one by one. */
@@ -1580,7 +1733,7 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     /**
      * When each step of each environment's import last succeeded, null where one never has.
      * <p>
-     * <b>Every step and not only the model</b>, because the reactions are steps of the same import that run
+     * <b>Every step and not only the model</b>, because the reactions are a step of the same import that runs
      * after it, and the documentation of an environment is asked for once its whole chain has run - so a site
      * read as soon as the model is in is a site read before its runtime views exist.
      */
@@ -1715,6 +1868,11 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     /** The pipeline of the handbook, whose role is granted for that site and for no system. */
     private String handbookToken() {
         return fetchAccessToken(AUTH_BASE_URL, "jme-handbook-pipeline", "secret");
+    }
+
+    /** The Governance Service's own client, which reports a completed scoring run. */
+    private String governanceNotifierToken() {
+        return fetchAccessToken(AUTH_BASE_URL, "jme-governance-notifier", "secret");
     }
 
     private String operatorToken() {

@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.11.0] - 2026-11-09
+
+### Added
+- A third site, `governance`, at `/site/governance/`: the scores and rule conformance of the Governance Service, published by the governance import.
+- The upstream stub serves the Governance Service's `/docs-api` below `/governance`, computed from the fixture `governance.yml`.
+- The clients `jme-doc-governance-reader`, which reads the reports, and `jme-governance-notifier`, which calls the governance webhook.
+- `start.sh` reports a completed scoring run to the webhook and waits until the governance site is published.
+
+### Dependencies
+- **ch.admin.bit.jeap:jeap-doc-service**: 4.5.0 → 4.7.0
+
 ## [9.10.0] - 2026-11-08
 
 ### Dependencies

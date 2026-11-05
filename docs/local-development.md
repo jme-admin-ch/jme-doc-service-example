@@ -36,7 +36,7 @@ Everything this page describes is also a script:
 It checks the four prerequisites before it does anything - including which Node it will hand the service, so
 that the one failure this page exists for cannot happen silently - then builds, starts the containers and the
 three services, imports the model and the reactions of every environment, waits until every part of the site
-is published and opens the documentation. What follows is the same thing by hand, and what to read when the script stops at one of the
+is published, publishes the handbook and the governance site and opens the documentation. What follows is the same thing by hand, and what to read when the script stops at one of the
 steps.
 
 ## What the Maven build does with npm
@@ -76,7 +76,8 @@ The doc service generates its documentation out of an architecture model and dra
 what a reaction observer saw happening, and this example runs neither of those services. It has
 [`jme-doc-upstream-stub`](../jme-doc-upstream-stub) instead: one service of the example answering for both -
 the `/docs-api` of an architecture repository and the graph API of a reaction observer - over a fixed landscape
-of two systems, each behind the semantic role the real thing requires. Start it beside the other two:
+of two systems, each behind the semantic role the real thing requires. It answers the reports of a Governance
+Service too, below `/governance`, for the governance site. Start it beside the other two:
 
 ```shell
 ./mvnw spring-boot:run -pl jme-doc-upstream-stub -Dspring-boot.run.profiles=local

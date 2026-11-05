@@ -62,6 +62,25 @@ oauth-mock-data:
       userroles: [ "jme_@reactions_#read" ]
       audience: [ "https://resources.jme.admin.ch/jme/jme-doc-upstream-stub" ]
 
+    # The doc service reading the reports of the stubbed Governance Service, carrying
+    # 'jme_@governance-documentation_#read'. Like the two readers above it has no tenant part and is issued for
+    # the audience of the upstream, and it is a client of its own because the Governance Service is a service of
+    # its own.
+    - client-id: "jme-doc-governance-reader"
+      client-secret: "{noop}secret"
+      context: "SYS"
+      userroles: [ "jme_@governance-documentation_#read" ]
+      audience: [ "https://resources.jme.admin.ch/jme/jme-doc-upstream-stub" ]
+
+    # The Governance Service telling the doc service that a scoring run completed, so that the governance site
+    # is published at once rather than at the next scheduled import. No tenant part: a scoring run covers every
+    # system. Issued for the audience of the doc service, which is the service it calls.
+    - client-id: "jme-governance-notifier"
+      client-secret: "{noop}secret"
+      context: "SYS"
+      userroles: [ "jme_@governance-notifications_#write" ]
+      audience: [ "https://resources.jme.admin.ch/jme/jme-doc-service" ]
+
     # Whoever operates the instance: they may ask for a site to be published and read what the documentation
     # generator has been doing. These two roles carry no tenant part, unlike the upload roles above: a build
     # regenerates the documentation of every system on the site, not that of one system.

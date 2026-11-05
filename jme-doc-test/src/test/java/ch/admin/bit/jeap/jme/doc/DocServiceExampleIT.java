@@ -119,12 +119,13 @@ class DocServiceExampleIT extends BootServiceSpringIntegrationTestBase {
                 "jeap.security.oauth2.resourceserver.authorization-server.jwk-set-uri",
                 AUTH_BASE_URL + "/.well-known/jwks.json",
                 // This suite is about what becomes of an upload, and the publishing half is
-                // DocSiteExampleIT's. Switching the three triggers off keeps a site generation from starting
+                // DocSiteExampleIT's. Switching the four triggers off keeps a site generation from starting
                 // behind every test here, and keeps the upstream stub out of a suite that has nothing to say
                 // about the architecture model.
                 "jeap.doc.sites." + SITE + ".publish-on-upload", "false",
                 "jeap.doc.archrepo.import.on-startup", "false",
                 "jeap.doc.archrepo.import.cron", "",
+                "jeap.doc.governance.import.cron", "",
                 "jeap.doc.build.reconcile-cron", "-"));
     }
 
@@ -253,7 +254,7 @@ class DocServiceExampleIT extends BootServiceSpringIntegrationTestBase {
     @Test
     void uploadForASiteThisInstanceDoesNotConfigureNamesTheSitesThereAre() {
         Map<String, String> forAnUnknownSite = documentationSetParameters();
-        forAnUnknownSite.put("site", "governance");
+        forAnUnknownSite.put("site", "intranet");
 
         upload(UUID.randomUUID(), uploadToken(), forAnUnknownSite)
                 .then()
