@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.21.0] - 2026-11-20
+
+### Added
+- `sidebar_position`, `sidebar_after` and `sidebar_before` order the pages, groups and microsites of an uploaded chapter: chapter 1 of `jme-doc-service` places "Team and contact" after "Why we built this" and groups its FAQ beside them, and the "Configuration Reference" microsite of chapter 8 places itself right before the uploaded "Configuration overview" page.
+- One level of groups inside an uploaded chapter: a folder holding at least one page, labelled and placed among the chapter's other items by its own landing page's front matter - the FAQ group above is one.
+- The handbook's "Code Review" page keeps its place with an explicit `sidebar_position: 2` instead of a number prefix on its file name, which `example-docs/handbook/` now shows working for a static site too.
+- Every chapter's generated landing page lists its contents in that same order.
+
 ## [9.20.0] - 2026-11-19
 
 ### Dependencies

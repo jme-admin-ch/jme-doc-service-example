@@ -301,6 +301,26 @@ class DocServiceExampleIT extends BootServiceSpringIntegrationTestBase {
     }
 
     /**
+     * A page may place itself among the siblings of its own chapter with {@code sidebar_after} or
+     * {@code sidebar_before}, but a name that resolves to nothing - no page, group, microsite or generated
+     * sibling of that chapter - is refused rather than silently falling back to today's order.
+     * <p>
+     * <b>This is found in the page's content</b>, which only the upload reads: the advisory validation
+     * endpoint checks a tree of paths and never a file's bytes, so a pipeline that ran it first still meets
+     * this one for the first time at the upload.
+     */
+    @Test
+    void anUploadWhosePageNamesAPlacementThatDoesNotExistIsRefused() {
+        upload(UUID.randomUUID(), uploadToken(), documentationSetParameters(),
+               DocumentationSets.unknownOrderingReferenceBundle())
+                .then()
+                .statusCode(422)
+                .contentType("application/problem+json")
+                .body("code", equalTo("STRUCTURE_INVALID"))
+                .body("findings.code", hasItem("UNKNOWN_REFERENCE"));
+    }
+
+    /**
      * The size of the bundle has to be announced: it lets a bundle that is too large be rejected before it is
      * transferred, and it is what a body cut short is recognised by. Every client that uploads a file sends it -
      * {@code curl --data-binary @docs.zip} does, and so does rest-assured - so the request that does not is sent
