@@ -12,8 +12,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   doc service's `/ui-api` and linking into the governance site; `DocSiteExampleIT` drives it in the browser.
 
 ### Dependencies
-- **ch.admin.bit.jeap:jeap-doc-service-instance**: 4.14.0 → 4.15.0-feature-JEAP-7897-governance-excerpts-SNAPSHOT (minor)
-- **ch.admin.bit.jeap:jeap-doc-site**: 4.14.0 → 4.15.0-feature-JEAP-7897-governance-excerpts-SNAPSHOT (minor)
+- **ch.admin.bit.jeap:jeap-doc-service-instance**: 4.14.0 → 4.15.0 (minor)
+- **ch.admin.bit.jeap:jeap-doc-site**: 4.14.0 → 4.15.0 (minor)
 
 ## [9.18.0] - 2026-11-18
 
