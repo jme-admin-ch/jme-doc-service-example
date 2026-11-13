@@ -39,7 +39,7 @@
     <properties>
         <java.version>25</java.version>
         <maven.compiler.release>25</maven.compiler.release>
-        <jeap-doc-service.version>4.15.0-SNAPSHOT</jeap-doc-service.version>
+        <jeap-doc-service.version>4.15.0-feature-JEAP-7897-governance-excerpts-SNAPSHOT</jeap-doc-service.version>
         <jeap-oauth-mock-server.version>11.18.0</jeap-oauth-mock-server.version>
         <jme-spring-boot-integration-test.version>8.10.0</jme-spring-boot-integration-test.version>
         <!-- Not managed by jeap-spring-boot-parent. It has to agree with the browser in the build
