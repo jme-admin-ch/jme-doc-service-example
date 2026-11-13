@@ -1469,6 +1469,9 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
                 .containsExactly(SHELL_PART);
         assertThat(pageOf(GOVERNANCE_ROOT))
                 .contains(GOVERNANCE_TITLE)
+                .contains(linkTo("systems/"))
+                .contains(linkTo("rules/"));
+        assertThat(pageOf(GOVERNANCE_ROOT + "systems/"))
                 .contains(linkTo("systems/jme/"))
                 .contains(linkTo("systems/orders/"))
                 .describedAs("the score of orders, the average of its two components").contains("65%");
@@ -1484,13 +1487,13 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
     void theGovernanceSiteLinksSystemsComponentsAndRules() {
         assertThat(pageOf(GOVERNANCE_ROOT + "systems/orders/"))
                 .contains("Score history")
-                .contains(linkTo("systems/orders/components/orders-intake/"))
-                .contains(linkTo("systems/orders/components/orders-payment-scs/"));
+                .contains(linkTo("systems/orders/orders-intake/"))
+                .contains(linkTo("systems/orders/orders-payment-scs/"));
 
-        assertThat(pageOf(GOVERNANCE_ROOT + "systems/orders/components/orders-payment-scs/"))
+        assertThat(pageOf(GOVERNANCE_ROOT + "systems/orders/orders-payment-scs/"))
                 .contains("Three dependencies are older than 90 days")
                 .contains(linkTo("rules/dependencies-current/"));
-        assertThat(pageOf(GOVERNANCE_ROOT + "systems/jme/components/jme-doc-auth-scs/"))
+        assertThat(pageOf(GOVERNANCE_ROOT + "systems/jme/jme-doc-auth-scs/"))
                 .describedAs("a violation within the violation delay").contains("Violation grace period ends at");
 
         assertThat(pageOf(GOVERNANCE_ROOT + "rules/dependencies-current/"))
@@ -1500,9 +1503,9 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
                 .contains(linkTo("systems/orders/"))
                 .describedAs("the conformance of orders, one of its two components").contains("50%")
                 .contains("Non-compliant components")
-                .contains(linkTo("systems/orders/components/orders-payment-scs/"))
+                .contains(linkTo("systems/orders/orders-payment-scs/"))
                 .contains("Violation grace period")
-                .contains(linkTo("systems/jme/components/jme-doc-auth-scs/"));
+                .contains(linkTo("systems/jme/jme-doc-auth-scs/"));
 
         assertThat(pageOf(GOVERNANCE_ROOT + "rules/"))
                 .contains(linkTo("rules/no-legacy-build-file/"))
