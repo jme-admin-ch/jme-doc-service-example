@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.19.0] - 2026-11-18
+
+### Added
+- The architecture pages of a scored system and of its components show the live governance excerpt, read from the
+  doc service's `/ui-api` and linking into the governance site; `DocSiteExampleIT` drives it in the browser.
+
+### Dependencies
+- **ch.admin.bit.jeap:jeap-doc-service-instance**: 4.14.0 → 4.15.0-SNAPSHOT (minor)
+- **ch.admin.bit.jeap:jeap-doc-site**: 4.14.0 → 4.15.0-SNAPSHOT (minor)
+
 ## [9.18.0] - 2026-11-18
 
 ### Dependencies

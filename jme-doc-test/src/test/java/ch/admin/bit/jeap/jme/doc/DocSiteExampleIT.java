@@ -1563,8 +1563,37 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
      * <b>Last, and nothing is waited for.</b> What this leaves behind is three more generator runs producing
      * exactly what is already published, and the suite has read everything it came for.
      */
+    /**
+     * In the browser: the architecture pages of a scored system show its governance excerpt, read live from the
+     * doc service and linking into the governance site published above. The scores are the stub's.
+     */
     @Test
     @Order(44)
+    void theArchitecturePagesShowTheGovernanceExcerpt() {
+        try (BrowserContext context = browser.newContext()) {
+            Page system = open(context, "/" + ENVIRONMENT + "/systems/orders/");
+            Locator excerpt = system.locator("[data-jeap-excerpt='governance']");
+            PlaywrightAssertions.assertThat(excerpt).containsText("65 %");
+            PlaywrightAssertions.assertThat(excerpt).containsText("scoring run of");
+            PlaywrightAssertions.assertThat(excerpt.locator("tbody tr")).hasCount(2);
+            PlaywrightAssertions.assertThat(excerpt.locator("tbody tr", new Locator.LocatorOptions()
+                    .setHasText("orders-payment-scs"))).containsText("Dependencies are kept current");
+
+            Page component = open(context, "/" + ENVIRONMENT
+                    + "/systems/orders/system-architecture/building-block-view/components/orders-payment-scs/");
+            Locator componentExcerpt = component.locator("[data-jeap-excerpt='governance']");
+            PlaywrightAssertions.assertThat(componentExcerpt)
+                    .containsText("Three dependencies are older than 90 days: payment-client 2.1.0 + 2 more");
+
+            // The link leads to the component's page on the governance site.
+            componentExcerpt.locator("footer a").first().click();
+            component.waitForURL(url -> url.endsWith(GOVERNANCE_ROOT + "systems/orders/orders-payment-scs/"));
+            PlaywrightAssertions.assertThat(component.locator("article h1").first()).hasText("orders-payment-scs");
+        }
+    }
+
+    @Test
+    @Order(45)
     void askingForTheWholeSiteAsksForEveryPartOfIt() {
         given().baseUri(DOC_BASE_URL)
                 .auth().oauth2(operatorToken())

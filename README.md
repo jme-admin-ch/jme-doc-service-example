@@ -534,6 +534,13 @@ It answers `202`, and the site is published at http://localhost:8080/jme-doc-ser
 seconds later. A schedule imports the reports as well, as the safety net for a lost call. **`start.sh` calls the
 webhook** and waits until the site is published.
 
+**The architecture pages show an excerpt of it.** A system's page - http://localhost:8080/jme-doc-service/systems/orders/
+- and each of its components' pages show the system's score, trend and last 14 days, and per component the rules it
+fails, each linking to its page on the governance site. The pages read the excerpt live in the browser from
+`GET /jme-doc-service/ui-api/excerpts/governance/systems/{system}`, open and without a token, so a new scoring run
+shows without the architecture site being generated again. A system the Governance Service does not score shows
+none.
+
 ### What the bucket keeps, and for how long
 
 Nothing in the object storage is kept indefinitely, and what removes it is not the same thing for both kinds.
