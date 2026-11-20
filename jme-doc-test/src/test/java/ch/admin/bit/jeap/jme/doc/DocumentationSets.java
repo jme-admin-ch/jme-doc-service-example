@@ -46,6 +46,41 @@ final class DocumentationSets {
             "Because the documentation of a component belongs next to the code of that component.";
 
     /**
+     * A second page of the same chapter, placed with {@code sidebar_after} rather than left to be sorted by
+     * its title - it says {@code why-we-built-this}, the name {@link #PAGE_NAME} is read as by
+     * {@link ch.admin.bit.jeap.doc.domain.custom.ChapterOrder#nameOf}.
+     */
+    static final String TEAM_PAGE_NAME = "team-and-contact";
+    static final String TEAM_PAGE_TITLE = "Team and contact";
+    static final String TEAM_PAGE_TEXT = "The team behind jme-doc-service is reached in #jme-doc-service.";
+
+    /**
+     * A group below the same chapter: a folder holding at least one page, labelled and placed among the
+     * chapter's other items by its own landing page's front matter - {@code index.md}, placed with
+     * {@code sidebar_after} naming {@link #TEAM_PAGE_NAME}. Its two pages are ordered the same way, one
+     * relative to the other and inside the group alone - a reference inside a group never reaches the
+     * chapter around it.
+     */
+    static final String FAQ_GROUP = "faq";
+    static final String FAQ_LABEL = "FAQ";
+    static final String FAQ_FIRST_PAGE_NAME = "installation";
+    static final String FAQ_FIRST_PAGE_TITLE = "Installing jme-doc-service";
+    static final String FAQ_FIRST_PAGE_TEXT = "Clone the repository and run ./start.sh.";
+    static final String FAQ_SECOND_PAGE_NAME = "upgrading";
+    static final String FAQ_SECOND_PAGE_TITLE = "Upgrading jme-doc-service";
+    static final String FAQ_SECOND_PAGE_TEXT =
+            "Bump jeap-doc-service.version in the root pom.xml and rebuild.";
+
+    /**
+     * A third page of the component, in the chapter the microsite below is embedded in - with no placement of
+     * its own, so the microsite can name it from {@link #micrositeParameters}.
+     */
+    static final String CONFIG_OVERVIEW_PAGE_NAME = "configuration-overview";
+    static final String CONFIG_OVERVIEW_PAGE_TITLE = "Configuration overview";
+    static final String CONFIG_OVERVIEW_PAGE_TEXT =
+            "Every property is documented in the reference below, generated from the running configuration.";
+
+    /**
      * A picture beside the page, which the page shows. It is filed in the same chapter folder, because that is
      * where the site generator writes it: next to the page that links to it.
      */
@@ -112,9 +147,22 @@ final class DocumentationSets {
     /**
      * The files of the set, as a doc workflow lists them for the validation endpoint: relative to the root of
      * the documentation folder, written with {@code /}, directories not listed.
+     * <p>
+     * <b>Ordered and grouped</b>: chapter 1 carries the one page every test before this one already knew,
+     * {@link #TEAM_PAGE_NAME} placed after it, and the {@link #FAQ_GROUP} placed after that - its own two
+     * pages ordered the same way, inside the group alone. Chapter 8 carries {@link #CONFIG_OVERVIEW_PAGE_NAME}
+     * with no placement of its own, which is what lets the microsite of {@link #micrositeParameters} place
+     * itself right before it.
      */
     static List<String> paths() {
-        return List.of(CHAPTER + "/" + PAGE_NAME + ".md", CHAPTER + "/" + IMAGE_NAME);
+        return List.of(
+                CHAPTER + "/" + PAGE_NAME + ".md",
+                CHAPTER + "/" + IMAGE_NAME,
+                CHAPTER + "/" + TEAM_PAGE_NAME + ".md",
+                CHAPTER + "/" + FAQ_GROUP + "/index.md",
+                CHAPTER + "/" + FAQ_GROUP + "/" + FAQ_FIRST_PAGE_NAME + ".md",
+                CHAPTER + "/" + FAQ_GROUP + "/" + FAQ_SECOND_PAGE_NAME + ".md",
+                MICROSITE_LOCATION + "/" + CONFIG_OVERVIEW_PAGE_NAME + ".md");
     }
 
     /**
@@ -137,12 +185,39 @@ final class DocumentationSets {
         return bundleOf(misfiledPaths());
     }
 
+    /** A name no page, group, microsite or generated sibling of a chapter of this fixture ever carries. */
+    static final String UNKNOWN_REFERENCE = "does-not-exist";
+
+    /**
+     * A set the upload refuses for its placement rather than its structure: one page of {@link #CHAPTER},
+     * naming a sibling that does not exist. {@code UNKNOWN_REFERENCE} is what that is refused with - a
+     * {@code 422} like {@link #misfiledBundle()}'s, found in a page's front matter rather than in its path,
+     * so the advisory validation endpoint - which reads paths and not bytes - has nothing to say about it.
+     */
+    static byte[] unknownOrderingReferenceBundle() {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(bytes)) {
+            write(zip, CHAPTER + "/a-stray-page.md", """
+                    ---
+                    sidebar_after: %s
+                    ---
+
+                    # A stray page
+
+                    Its sidebar_after names nothing of this chapter.
+                    """.formatted(UNKNOWN_REFERENCE));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return bytes.toByteArray();
+    }
+
     private static byte[] bundleOf(List<String> paths) {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try (ZipOutputStream zip = new ZipOutputStream(bytes)) {
             for (String path : paths) {
                 zip.putNextEntry(new ZipEntry(path));
-                zip.write(path.endsWith(".md") ? page().getBytes(StandardCharsets.UTF_8) : image());
+                zip.write(contentOf(path));
                 zip.closeEntry();
             }
         } catch (IOException e) {
@@ -152,9 +227,72 @@ final class DocumentationSets {
     }
 
     /**
-     * The Markdown of the page. It carries no front matter of its own: what a reader sees under the page -
-     * the repository, the branch, the commit and the version - is written by the doc service out of the
-     * upload's parameters, and a page may not claim any of it itself.
+     * The bytes of one path of the set: one of the pages below, keyed by its path - {@link #MISFILED_PAGE}
+     * among them, which is {@link #page()} regardless of where it is filed, because what makes it unpublishable
+     * is its chapter and not its content - or {@link #image()} for anything that is not Markdown.
+     */
+    private static byte[] contentOf(String path) {
+        if (!path.endsWith(".md")) {
+            return image();
+        }
+        String markdown = pages().get(path);
+        return (markdown != null ? markdown : page()).getBytes(StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Every page {@link #paths()} may carry, by its path - everything this does not list is {@link #page()}.
+     * <p>
+     * Built fresh rather than held in a {@code static final} field: a field initializer runs during this
+     * class's own static initialization, in declaration order, and this reads {@link #MICROSITE_LOCATION} -
+     * declared well below this method - before that field's own initializer would have run.
+     */
+    private static Map<String, String> pages() {
+        Map<String, String> pages = new LinkedHashMap<>();
+        pages.put(CHAPTER + "/" + TEAM_PAGE_NAME + ".md", """
+                ---
+                sidebar_after: %s
+                ---
+
+                # %s
+
+                %s
+                """.formatted(PAGE_NAME, TEAM_PAGE_TITLE, TEAM_PAGE_TEXT));
+        pages.put(CHAPTER + "/" + FAQ_GROUP + "/index.md", """
+                ---
+                title: %s
+                sidebar_after: %s
+                ---
+
+                # %s
+
+                Answers a reader of this component asks before anything else in this chapter.
+                """.formatted(FAQ_LABEL, TEAM_PAGE_NAME, FAQ_LABEL));
+        pages.put(CHAPTER + "/" + FAQ_GROUP + "/" + FAQ_FIRST_PAGE_NAME + ".md", """
+                # %s
+
+                %s
+                """.formatted(FAQ_FIRST_PAGE_TITLE, FAQ_FIRST_PAGE_TEXT));
+        pages.put(CHAPTER + "/" + FAQ_GROUP + "/" + FAQ_SECOND_PAGE_NAME + ".md", """
+                ---
+                sidebar_after: %s
+                ---
+
+                # %s
+
+                %s
+                """.formatted(FAQ_FIRST_PAGE_NAME, FAQ_SECOND_PAGE_TITLE, FAQ_SECOND_PAGE_TEXT));
+        pages.put(MICROSITE_LOCATION + "/" + CONFIG_OVERVIEW_PAGE_NAME + ".md", """
+                # %s
+
+                %s
+                """.formatted(CONFIG_OVERVIEW_PAGE_TITLE, CONFIG_OVERVIEW_PAGE_TEXT));
+        return Map.copyOf(pages);
+    }
+
+    /**
+     * The Markdown of {@link #PAGE_NAME}. It carries no front matter of its own: what a reader sees under the
+     * page - the repository, the branch, the commit and the version - is written by the doc service out of
+     * the upload's parameters, and a page may not claim any of it itself.
      */
     private static String page() {
         return "# " + PAGE_TITLE + "\n\n" + PAGE_TEXT + "\n\n![" + IMAGE_ALT + "](./" + IMAGE_NAME + ")\n";
@@ -308,6 +446,18 @@ final class DocumentationSets {
         parameters.put("label", MICROSITE_LABEL);
         parameters.put("version", "1.0.0");
         parameters.putAll(provenance());
+        return parameters;
+    }
+
+    /**
+     * The microsite's own parameters, placed right before {@link #CONFIG_OVERVIEW_PAGE_NAME} - the other item
+     * of its chapter, uploaded with no placement of its own so this one has something to name. The query
+     * parameter is {@code sidebar-before} because a microsite is HTML: it carries no front matter of its own
+     * for the service to read a hint out of.
+     */
+    static Map<String, String> micrositeParametersOrderedBeforeConfigOverview() {
+        Map<String, String> parameters = micrositeParameters(MICROSITE_TOPIC);
+        parameters.put("sidebar-before", CONFIG_OVERVIEW_PAGE_NAME);
         return parameters;
     }
 

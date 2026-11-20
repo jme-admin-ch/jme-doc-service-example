@@ -12,6 +12,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **ch.admin.bit.jeap:jeap-doc-service-instance**: 4.16.0 → 4.17.0 (minor)
 - **ch.admin.bit.jeap:jeap-doc-site**: 4.16.0 → 4.17.0 (minor)
 
+### Added
+- `sidebar_position`, `sidebar_after` and `sidebar_before` order the pages, groups and microsites of an uploaded chapter: chapter 1 of `jme-doc-service` places "Team and contact" after "Why we built this" and groups its FAQ beside them, and the "Configuration Reference" microsite of chapter 8 places itself right before the uploaded "Configuration overview" page.
+- One level of groups inside an uploaded chapter: a folder holding at least one page, labelled and placed among the chapter's other items by its own landing page's front matter - the FAQ group above is one.
+- The handbook's "Code Review" page keeps its place with an explicit `sidebar_position: 2` instead of a number prefix on its file name, which `example-docs/handbook/` now shows working for a static site too.
+- Every chapter's generated landing page lists its contents in that same order.
+
 ## [9.20.0] - 2026-11-19
 
 ### Dependencies
