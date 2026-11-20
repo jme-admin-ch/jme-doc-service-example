@@ -642,8 +642,25 @@ class DocSiteExampleIT extends BootServiceSpringIntegrationTestBase {
             Locator viewer = page.locator("section[aria-label='Reaction chains']").first();
             viewer.scrollIntoViewIfNeeded();
             PlaywrightAssertions.assertThat(viewer.locator("canvas").first()).isVisible();
-            // What proves the graph was read is the content: the table beside the picture carries the names.
-            PlaywrightAssertions.assertThat(page.locator("table[data-reaction-table]").first())
+            // Groups start collapsed, and the live table only contains individual visible reactions.
+            // Click this component's numbered group marker to unfold it before checking its table row.
+            Locator graph = viewer.locator("div[aria-label^='Reaction graph.']");
+            viewer.getByRole(AriaRole.BUTTON, new Locator.GetByRoleOptions().setName("Fit all").setExact(true)).click();
+            graph.scrollIntoViewIfNeeded();
+            Map<?, ?> marker = (Map<?, ?>) graph.evaluate("""
+                    async (element, component) => {
+                        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                        const cy = element._cyreg.cy;
+                        const group = cy.nodes('[kind="group"]').filter(node => node.data('component') === component).first();
+                        const marker = group.children('[kind="marker"]').filter(node => node.data('restore')).first();
+                        if (!marker.length) throw new Error(`No collapsed reaction group for ${component}`);
+                        return marker.renderedPosition();
+                    }
+                    """, REACTING_COMPONENT);
+            graph.click(new Locator.ClickOptions().setPosition(
+                    ((Number) marker.get("x")).doubleValue(), ((Number) marker.get("y")).doubleValue()));
+            PlaywrightAssertions.assertThat(page.locator(".jeapReactionView").first()
+                            .locator("table[data-reaction-table='live']"))
                     .containsText(REACTING_COMPONENT);
         }
     }
