@@ -1,6 +1,7 @@
 ---
 title: Code Review
 description: What a reviewer of the JME team looks at, and what they leave to the build.
+sidebar_position: 2
 ---
 
 # Code Review

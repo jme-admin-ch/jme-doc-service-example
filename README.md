@@ -287,6 +287,40 @@ document a component before anything of it is deployed, and a library is always 
 such a subject additionally carries a generated page saying that the model does not hold it and what would make
 it appear.
 
+### Ordering and grouping the pages of a chapter
+
+**A page places itself among the siblings of its own chapter.** `sidebar_position` is a number; `sidebar_after`
+and `sidebar_before` name one other item of the same chapter - another uploaded page, a group, a microsite, or a
+page the template generates - and a page gives at most one of the two. A name that resolves to nothing, or a
+cycle, is refused by the upload with `422` and a finding naming which: `INVALID_POSITION`, `INVALID_REFERENCE`,
+`UNKNOWN_REFERENCE` or `CYCLIC_ORDER` - checked in the page's content, so the advisory validation endpoint of the
+next section has nothing to say about it. An item that gives neither key sorts after everything placed, by its
+title - exactly as it always did.
+
+**One folder directly below a chapter is a group**, as long as it holds at least one page. Its own landing page
+- `index.md`, `readme.md`, or a file named like the folder - carries the group's label in `title` and its place
+among the chapter's own items in the same three keys a page uses. Without an uploaded landing page the group is
+labelled by its folder name, placed among the items that name no reference, and the service writes one.
+
+[`DocumentationSets`](jme-doc-test/src/test/java/ch/admin/bit/jeap/jme/doc/DocumentationSets.java), the set this
+example's end-to-end test uploads for `jme-doc-service`, shows all of it in one chapter: `1-intro/why-we-built-this.md`,
+then `team-and-contact.md` placed after it with `sidebar_after`, then the group `faq/` placed after that - its
+own two pages, `installation.md` and `upgrading.md`, ordered the same way inside the group alone. A microsite
+carries no Markdown of its own to read a hint out of, so it uses the same three keys as upload parameters
+instead: the "Configuration Reference" microsite of chapter 8 is uploaded with `&sidebar-before=configuration-overview`,
+placing it right before the page of that name.
+
+**And every chapter's landing page lists its contents, in exactly that order** - rendered from the sidebar
+rather than written into the Markdown, so it can never link to a page the build dropped and it follows a
+reordering for free. A group's landing page gets the same list, over its own pages.
+
+**A static site keeps `sidebar_position`, with no reference keys of its own** - Docusaurus orders its pages
+natively, and the service writes the value through unchanged. [`example-docs/handbook/working-agreements/code-review.md`](example-docs/handbook/working-agreements/code-review.md)
+shows it: `sidebar_position: 2` keeps its place between `01-the-agreements.md` and `03-how-we-release.md`
+without a number in its own file name.
+
+This needs `jeap-doc-service` ≥ 4.13.0, which is the version this example pins.
+
 ### Ask whether a tree would be accepted, before packing it
 
 Where each file sits in the folder is what decides where it is published, so a misfiled tree is a build that
